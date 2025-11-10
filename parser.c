@@ -1,3 +1,14 @@
+/*
+ * FluxParser - Research-Grade C Math Parser
+ * Copyright (C) 2025 Eduardo Stern
+ *
+ * Dual Licensed:
+ * - GPL-3.0 for open-source/non-commercial use
+ * - Commercial license available - see LICENSE-COMMERCIAL.md
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+ */
+
 #include "parser.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +26,6 @@
 /* Thread-safe globals with mutex protection */
 static pthread_mutex_t parser_mutex = PTHREAD_MUTEX_INITIALIZER;
 static __thread bool debug_mode_local = false;  /* Thread-local */
-static __thread bool random_seeded_local = false;  /* Thread-local */
 
 bool debug_mode = false;  /* Keep for backward compatibility */
 static bool random_seeded = false;

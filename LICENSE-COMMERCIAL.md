@@ -96,4 +96,4 @@ A: Yes, contact us for perpetual licensing options (typically 5x annual price).
 
 ---
 
-**Copyright (C) 2025 Eduardo. All rights reserved.**
+**Copyright (C) 2025 Eduardo Stern. All rights reserved.**

@@ -1,3 +1,14 @@
+/*
+ * FluxParser - Research-Grade C Math Parser
+ * Copyright (C) 2025 Eduardo Stern
+ *
+ * Dual Licensed:
+ * - GPL-3.0 for open-source/non-commercial use
+ * - Commercial license available - see LICENSE-COMMERCIAL.md
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+ */
+
 #ifndef PARSER_H
 #define PARSER_H
 

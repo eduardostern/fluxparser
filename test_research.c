@@ -21,7 +21,7 @@ void test_ast_construction() {
     ast_print(expr);
 
     /* Evaluate with x=5 */
-    float value = 5.0;
+    double value = 5.0;
     VarMapping mapping = {"x", 0};
     VarContext ctx = {
         .values = &value,
@@ -30,7 +30,7 @@ void test_ast_construction() {
         .mapping_count = 1
     };
 
-    float result = ast_evaluate(expr, &ctx);
+    double result = ast_evaluate(expr, &ctx);
     printf("\nWith x=%.0f: Result = %.2f (expected 13.00)\n", value, result);
 
     char *str = ast_to_string(expr);
@@ -218,7 +218,7 @@ void test_complex_expression() {
     free(expr_str);
 
     /* Evaluate with a=3, b=4 (should give 5) */
-    float values[] = {3.0, 4.0};
+    double values[] = {3.0, 4.0};
     VarMapping mappings[] = {{"a", 0}, {"b", 1}};
     VarContext ctx = {
         .values = values,
@@ -227,7 +227,7 @@ void test_complex_expression() {
         .mapping_count = 2
     };
 
-    float result = ast_evaluate(expr, &ctx);
+    double result = ast_evaluate(expr, &ctx);
     printf("With a=3, b=4:\n");
     printf("  Direct evaluation: %.2f (expected 5.00)\n", result);
 

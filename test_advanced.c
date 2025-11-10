@@ -1,3 +1,14 @@
+/*
+ * FluxParser - Research-Grade C Math Parser
+ * Copyright (C) 2025 Eduardo Stern
+ *
+ * Dual Licensed:
+ * - GPL-3.0 for open-source/non-commercial use
+ * - Commercial license available - see LICENSE-COMMERCIAL.md
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +45,7 @@ void test_comparisons() {
     int passed = 0;
     for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); i++) {
         ParseResult r = parse_expression_safe(tests[i].expr);
-        if (!r.has_error && fabsf(r.value - tests[i].expected) < 0.01) {
+        if (!r.has_error && fabs(r.value - tests[i].expected) < 0.01) {
             printf("  [PASS] %s => %.0f\n", tests[i].expr, r.value);
             passed++;
         } else {
@@ -68,7 +79,7 @@ void test_complex_logic() {
     int passed = 0;
     for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); i++) {
         ParseResult r = parse_expression_safe(tests[i].expr);
-        if (!r.has_error && fabsf(r.value - tests[i].expected) < 0.01) {
+        if (!r.has_error && fabs(r.value - tests[i].expected) < 0.01) {
             printf("  [PASS] %s => %.0f\n", tests[i].expr, r.value);
             passed++;
         } else {
@@ -179,7 +190,7 @@ void test_thread_safety() {
 void test_advanced_config() {
     printf("=== Test 5: Advanced Configuration ===\n");
 
-    float vars[] = {10.0, 5.0};
+    double vars[] = {10.0, 5.0};
     VarContext ctx = {
         .values = vars,
         .count = 2,
@@ -226,7 +237,7 @@ void test_precedence() {
     int passed = 0;
     for (size_t i = 0; i < sizeof(tests)/sizeof(tests[0]); i++) {
         ParseResult r = parse_expression_safe(tests[i].expr);
-        if (!r.has_error && fabsf(r.value - tests[i].expected) < 0.01) {
+        if (!r.has_error && fabs(r.value - tests[i].expected) < 0.01) {
             printf("  [PASS] %s => %.0f (%s)\n",
                    tests[i].expr, r.value, tests[i].description);
             passed++;

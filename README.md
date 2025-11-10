@@ -2,6 +2,8 @@
 
 *Named after Isaac Newton's "fluxions" (1671) - the original term for derivatives.*
 
+**By Eduardo Stern**
+
 A **12/10 rated** expression parser in C with symbolic calculus and numerical solving. Combines symbolic differentiation/integration with Newton-Raphson equation solving - all in pure C99.
 
 ```

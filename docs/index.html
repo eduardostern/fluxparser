@@ -24,6 +24,7 @@
         <div class="container">
             <div class="hero-content">
                 <h1>FluxParser</h1>
+                <p style="font-size: 1.2rem; margin-bottom: 0.5rem; color: #667eea; font-weight: 600;">By Eduardo Stern</p>
                 <p class="hero-subtitle">From Newton's fluxions to modern numerical methods<br>Symbolic calculus • Numerical solving • Pure C99<br>Free for non-commercial • $299/year commercial</p>
                 <div class="hero-badges">
                     <span class="badge">12/10 Rating 🚀</span>
@@ -38,26 +39,29 @@
             </div>
             <div class="hero-code">
                 <pre><code>#include "parser.h"
+#include "ast.h"
 
 // Simple expressions
-parse_expression("2 + 3 * 4");  // => 14.0
+double result = parse_expression("2 + 3 * 4");
+// => 14.0
 
 // With variables
 double vals[] = {5.0, 10.0};
 VarContext ctx = {.values = vals, .count = 2};
-parse_expression_with_vars("a + b * 2", &ctx);
+result = parse_expression_with_vars("a + b * 2", &ctx);
+// => 25.0
 
-// Calculus: differentiation
-ASTNode *expr = /* parse: x^2 + 3*x */
+// Symbolic differentiation
+ASTNode *expr = parse_to_ast("x^2 + 3*x");
 ASTNode *deriv = ast_differentiate(expr, "x");
-// Result: 2*x + 3
+// => 2*x + 3
 
-// Numerical solving (Newton-Raphson)
-// Solve: sin(x) = 0.5
+// Numerical solving: sin(x) = 0.5
+ASTNode *eq = parse_to_ast("sin(x) - 0.5");
 NumericalSolveResult r = ast_solve_numerical(
-    equation, "x", 0.5, 1e-12, 100
+    eq, "x", 0.5, 1e-12, 100
 );
-// Converges in 3 iterations to π/6</code></pre>
+// x = 0.523599 (π/6), converges in 3 iterations</code></pre>
             </div>
         </div>
     </header>
@@ -314,7 +318,8 @@ NumericalSolveResult r = ast_solve_numerical(
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2025 Eduardo. Dual-licensed under GPL-3.0 and Commercial.</p>
+                <p>Created by <strong>Eduardo Stern</strong></p>
+                <p>&copy; 2025 Eduardo Stern. Dual-licensed under GPL-3.0 and Commercial.</p>
             </div>
         </div>
     </footer>

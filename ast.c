@@ -1,3 +1,14 @@
+/*
+ * FluxParser - Research-Grade C Math Parser
+ * Copyright (C) 2025 Eduardo Stern
+ *
+ * Dual Licensed:
+ * - GPL-3.0 for open-source/non-commercial use
+ * - Commercial license available - see LICENSE-COMMERCIAL.md
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+ */
+
 #include "ast.h"
 #include <stdlib.h>
 #include <string.h>
@@ -1925,6 +1936,7 @@ double vm_execute(VM *vm, const Bytecode *bc) {
  * ============================================================================ */
 
 CompiledExpression* compile_expression(const char *expr) {
+    (void)expr;  /* Suppress unused parameter warning */
     /* This would require integrating with the parser - placeholder for now */
     /* In a full implementation, we'd parse expr to AST, then compile to bytecode */
     return NULL;
@@ -1953,6 +1965,8 @@ double compiled_expression_evaluate(CompiledExpression *ce, VarContext *vars) {
  * ============================================================================ */
 
 char* differentiate_expression(const char *expr, const char *var_name) {
+    (void)expr;  /* Suppress unused parameter warning */
+    (void)var_name;  /* Suppress unused parameter warning */
     /* This would require integrating with the parser - placeholder for now */
     /* In a full implementation:
      * 1. Parse expr to AST
@@ -1964,6 +1978,7 @@ char* differentiate_expression(const char *expr, const char *var_name) {
 }
 
 char* simplify_expression(const char *expr) {
+    (void)expr;  /* Suppress unused parameter warning */
     /* This would require integrating with the parser - placeholder for now */
     /* In a full implementation:
      * 1. Parse expr to AST

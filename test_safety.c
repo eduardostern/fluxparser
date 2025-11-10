@@ -115,7 +115,7 @@ void test_error_position() {
 void test_unknown_variable() {
     printf("=== Test 7: Unknown variable ===\n");
 
-    float values[] = {5.0, 10.0};
+    double values[] = {5.0, 10.0};
     VarContext ctx = {
         .values = values,
         .count = 2,

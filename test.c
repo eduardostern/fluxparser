@@ -61,12 +61,9 @@ void print_usage() {
 
 int main(int argc, char *argv[]) {
     char input[MAX_INPUT];
-    bool interactive = true;
 
     /* Check if expression is provided as command line argument */
     if (argc > 1) {
-        interactive = false;
-
         /* Check for debug flag */
         int expr_start = 1;
         if (argc > 2 && strcmp(argv[1], "-d") == 0) {

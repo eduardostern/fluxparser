@@ -6,7 +6,7 @@ void test_simple_variables() {
     printf("=== Test 1: Simple single-letter variables (a-z) ===\n");
 
     /* Array of values - will map to a, b, c, d, ... */
-    float values[] = {5.0, 10.0, 3.0, 2.0};
+    double values[] = {5.0, 10.0, 3.0, 2.0};
 
     VarContext ctx = {
         .values = values,
@@ -17,7 +17,7 @@ void test_simple_variables() {
 
     printf("a=%.2f, b=%.2f, c=%.2f, d=%.2f\n", values[0], values[1], values[2], values[3]);
 
-    float result;
+    double result;
 
     result = parse_expression_with_vars("a + b", &ctx);
     printf("a + b = %.2f\n", result);
@@ -38,7 +38,7 @@ void test_custom_names() {
     printf("=== Test 2: Custom variable names ===\n");
 
     /* Values array */
-    float values[] = {100.0, 50.0, 25.0};
+    double values[] = {100.0, 50.0, 25.0};
 
     /* Custom name mappings */
     VarMapping mappings[] = {
@@ -56,7 +56,7 @@ void test_custom_names() {
 
     printf("WIDTH=%.2f, HEIGHT=%.2f, DEPTH=%.2f\n", values[0], values[1], values[2]);
 
-    float result;
+    double result;
 
     result = parse_expression_with_vars("WIDTH * HEIGHT", &ctx);
     printf("WIDTH * HEIGHT = %.2f (area)\n", result);
@@ -74,7 +74,7 @@ void test_physics_formulas() {
     printf("=== Test 3: Physics formulas ===\n");
 
     /* Physics constants and variables */
-    float values[] = {9.81, 10.0, 5.0, 2.0};  /* g, m, v, t */
+    double values[] = {9.81, 10.0, 5.0, 2.0};  /* g, m, v, t */
 
     VarMapping mappings[] = {
         {"G", 0},  /* gravity */
@@ -93,7 +93,7 @@ void test_physics_formulas() {
     printf("G=%.2f (gravity), M=%.2f (mass), V=%.2f (velocity), T=%.2f (time)\n",
            values[0], values[1], values[2], values[3]);
 
-    float result;
+    double result;
 
     /* Kinetic energy: 0.5 * m * v^2 */
     result = parse_expression_with_vars("0.5 * M * V^2", &ctx);
@@ -113,7 +113,7 @@ void test_physics_formulas() {
 void test_with_functions() {
     printf("=== Test 4: Variables with math functions ===\n");
 
-    float values[] = {3.0, 4.0, -5.0};
+    double values[] = {3.0, 4.0, -5.0};
 
     VarContext ctx = {
         .values = values,
@@ -124,7 +124,7 @@ void test_with_functions() {
 
     printf("a=%.2f, b=%.2f, c=%.2f\n", values[0], values[1], values[2]);
 
-    float result;
+    double result;
 
     result = parse_expression_with_vars("sqrt(a^2 + b^2)", &ctx);
     printf("sqrt(a^2 + b^2) = %.2f (Pythagorean)\n", result);
@@ -144,7 +144,7 @@ void test_with_functions() {
 void test_debug_mode() {
     printf("=== Test 5: Debug mode with variables ===\n");
 
-    float values[] = {2.0, 3.0};
+    double values[] = {2.0, 3.0};
 
     VarContext ctx = {
         .values = values,
@@ -154,7 +154,7 @@ void test_debug_mode() {
     };
 
     set_debug_mode(true);
-    float result = parse_expression_with_vars("a * a + b * b", &ctx);
+    double result = parse_expression_with_vars("a * a + b * b", &ctx);
     set_debug_mode(false);
 
     printf("Final result: %.2f\n\n", result);
@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
             const char *expr = argv[1];
 
             /* Parse variable values from command line */
-            float values[26] = {0};  /* Support up to 26 variables */
+            double values[26] = {0};  /* Support up to 26 variables */
             int count = 0;
 
             for (int i = 2; i < argc && count < 26; i++) {
@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
             }
             printf("\n");
 
-            float result = parse_expression_with_vars(expr, &ctx);
+            double result = parse_expression_with_vars(expr, &ctx);
             printf("Result: %.2f\n", result);
 
             return 0;
