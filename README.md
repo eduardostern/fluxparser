@@ -6,6 +6,8 @@
 
 A **12/10 rated** expression parser in C with symbolic calculus and numerical solving. Combines symbolic differentiation/integration with Newton-Raphson equation solving - all in pure C99.
 
+Originally built for a bioinformatics project (genetic risk scoring, SNP analysis, biomarker calculations), now available as a standalone library for any domain requiring advanced mathematical expression evaluation.
+
 ```
 Rating: 12/10 🚀
 Status: Production-Ready & Research-Grade
@@ -471,6 +473,8 @@ Detailed documentation is available in separate files:
 - **[README_RESEARCH.md](README_RESEARCH.md)** - AST, bytecode, differentiation
 - **[README_CALCULUS.md](README_CALCULUS.md)** - Integration and equation solving
 - **[README_NUMERICAL.md](README_NUMERICAL.md)** - Newton-Raphson numerical solver ⭐ NEW
+- **[DEBUG.md](DEBUG.md)** - Debug mode, callbacks, thread safety ⭐ NEW
+- **[PHILOSOPHY.md](PHILOSOPHY.md)** - Development philosophy: Experience + AI 🧑‍💻 NEW
 
 ---
 
@@ -811,16 +815,18 @@ make
 
 This parser is suitable for:
 
-1. **Scientific Computing** - Formula evaluation, numerical methods
-2. **Physics Simulations** - Dynamic equation solving
-3. **Financial Software** - Custom calculation engines
-4. **Game Development** - Scripting, AI behavior trees
-5. **IoT/Embedded** - Sensor data processing
-6. **Web Services** - API formula endpoints
-7. **Educational Tools** - Math learning apps
-8. **Computer Algebra** - Symbolic manipulation
-9. **Machine Learning** - Automatic differentiation
-10. **Data Analysis** - Custom metric calculations
+1. **Bioinformatics** - Genetic risk scoring, SNP analysis, biomarker calculations (original use case)
+2. **Scientific Computing** - Formula evaluation, numerical methods
+3. **Physics Simulations** - Dynamic equation solving
+4. **Financial Software** - Custom calculation engines
+5. **Medical Research** - Clinical scoring systems, diagnostic algorithms
+6. **Game Development** - Scripting, AI behavior trees
+7. **IoT/Embedded** - Sensor data processing
+8. **Web Services** - API formula endpoints
+9. **Educational Tools** - Math learning apps
+10. **Computer Algebra** - Symbolic manipulation
+11. **Machine Learning** - Automatic differentiation
+12. **Data Analysis** - Custom metric calculations
 
 ---
 
@@ -876,6 +882,126 @@ Overall:              ████████████ 12/10
 ```
 
 **This is a research-grade computer algebra system rivaling Mathematica in C!** 🚀
+
+---
+
+## 🧑‍💻 Development Philosophy: When Experience Meets AI
+
+### The Journey
+
+Born in 1976, I've witnessed and participated in nearly five decades of computing evolution. My first computer was a **TK-82C** (Brazilian ZX-81 clone), followed by a **TK-90X** (Microdigital's ZX Spectrum clone) at age 10. I learned to program in **Z80 assembler** when most developers today weren't born yet.
+
+I lived through the **CGA era**, programmed in **Turbo Pascal** and **Turbo C**, wrote DOS TSRs using **INT 21h interrupts**, built database applications with **Borland C and Btrieve**, explored obscure operating systems (**Coherent Unix**, **BeOS**, **Walnut Creek Slackware** from CD-ROMs), managed **Novell NetWare** servers, and eventually found home in Linux and PostgreSQL.
+
+I've used **every major programming paradigm**, from bare-metal assembly to modern distributed systems. I've debugged memory corruption at 3 AM, optimized critical paths instruction by instruction, and shipped production code that powered businesses.
+
+**This background matters.**
+
+### FluxParser: A Case Study in AI-Augmented Development
+
+FluxParser wasn't built as an academic exercise—it was born from **real necessity**. I needed a robust expression parser for a larger bioinformatics project dealing with **genes, genomes, SNPs (Single Nucleotide Polymorphisms), and biomarker calculations**. The parser had to handle complex mathematical formulas for genetic risk scoring and pathway analysis.
+
+Rather than compromise with an off-the-shelf solution or spend months building from scratch, I leveraged **40+ years of C experience combined with Claude Sonnet as a force multiplier**. Not as a replacement. Not as a crutch. As a **collaborator**.
+
+Here's what this means in practice:
+
+**What I Brought:**
+- 40+ years of computing experience
+- Deep understanding of C, memory management, pointers, and undefined behavior
+- Knowledge of parser theory, AST design, and VM architectures
+- Ability to **recognize correct code from plausible-but-wrong code**
+- Domain expertise in numerical methods, calculus, and computer algebra
+- Architectural vision: knowing what's worth building and how it should work
+
+**What Claude Brought:**
+- Rapid scaffolding and boilerplate generation
+- Instant recall of C99 standard library functions
+- Parallel exploration of implementation approaches
+- Tireless refactoring and documentation writing
+- Pattern recognition across thousands of open-source projects
+- 24/7 availability without fatigue
+
+**The Result:**
+A research-grade computer algebra system with symbolic calculus, bytecode compilation, and numerical solving—all in 4,500 lines of production-ready C code. Built in weeks, not months.
+
+### Addressing the Critics
+
+I see the Reddit threads. The HN debates. The gatekeeping. Let me be clear:
+
+**I agree with the criticism of cargo-cult AI development.**
+
+When someone pastes code they don't understand into production, that's not progress—that's negligence. When developers skip learning fundamentals because "AI will do it," that's building on sand.
+
+**But that's not what happened here.**
+
+This is what **expert-level AI collaboration** looks like:
+- I reviewed every line of generated code
+- I caught subtle bugs (mutex placement, race conditions, off-by-one errors)
+- I made architectural decisions (dual licensing, API design, feature scope)
+- I knew when Claude was wrong and corrected it
+- I wrote the tests that proved correctness
+
+The AI didn't write this parser. **We wrote it together.** Like a senior dev pair-programming with an incredibly fast junior who's read every C codebase on GitHub.
+
+### The Future Is Already Here
+
+Some will cling to "manual stick shift" development. That's fine. Beautiful code has been written that way for decades.
+
+But here's the uncomfortable truth: **A skilled developer with AI assistance outperforms the same developer without it.** Not because the AI is magic, but because:
+
+1. **Reduced cognitive load** - Let AI handle boilerplate while you focus on architecture
+2. **Faster iteration** - Try three approaches in the time it used to take for one
+3. **Broader exploration** - "Show me how muParser handles this" instantly
+4. **Living documentation** - Generate comprehensive docs that stay in sync
+5. **Relentless refactoring** - Rename 50 functions consistently without fear
+
+This is **augmentation**, not replacement.
+
+### The Wall-E Scenario: A Warning
+
+Yes, there's a risk. If we outsource all thinking to AI, knowledge **will** be lost.
+
+That's why I advocate for:
+- **Learn fundamentals first** - Read Kernighan & Ritchie before using AI to write C
+- **Understand what you're building** - Don't deploy code you can't debug
+- **Review everything** - AI generates; humans verify
+- **Teach the next generation** - Share knowledge, don't hoard it
+
+The developers who will struggle aren't those who use AI—they're those who **only** use AI without understanding.
+
+### A Challenge to the Skeptics
+
+Instead of dismissing AI-assisted development, ask:
+
+- "Can you explain every design decision in this parser?" ✅ Yes
+- "Can you debug a segfault at 0x00000008?" ✅ Yes
+- "Do you understand mutex vs spinlock tradeoffs?" ✅ Yes
+- "Can you implement Newton-Raphson from first principles?" ✅ Yes
+
+**Knowledge isn't gone. It's amplified.**
+
+I learned Z80 assembly by reading photocopied manuals and hex-editing cassette tapes. Today's developers learn Rust by chatting with Claude. Both paths require dedication, curiosity, and deep understanding.
+
+The tools change. The fundamentals don't.
+
+### An Invitation
+
+FluxParser is **open source** (GPL-3.0) specifically so others can learn from it. Read the code. Study the architecture. See how an experienced developer leverages AI while maintaining rigor.
+
+This is the future: **human expertise + machine efficiency**.
+
+Not human **or** machine. Human **and** machine.
+
+You can fear it, fight it, or master it.
+
+I chose mastery.
+
+---
+
+**Eduardo Stern**
+*40+ years of computing, still learning*
+
+📖 **[Read the complete development story in PHILOSOPHY.md →](PHILOSOPHY.md)**
 
 ---
 
