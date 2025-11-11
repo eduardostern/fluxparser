@@ -39,7 +39,7 @@ test_numerical: test_numerical.o ast.o parser.o
 test_new_features: test_new_features.o ast.o parser.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-calculate_pi: calculate_pi.o parser.o
+calculate_pi: calculate_pi.o ast.o parser.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c $(HEADERS)
