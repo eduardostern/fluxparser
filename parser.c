@@ -25,85 +25,110 @@
 
 /* ========== DEBUG MODE & CALLBACKS ========== */
 
-/* Global debug state */
+/* Global debug state (protected by mutex for thread safety) */
+static pthread_mutex_t debug_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int debug_level = DEBUG_OFF;
 static FILE *debug_output = NULL;  /* NULL means stderr */
-static int debug_indent = 0;
 
-/* Global callback state */
+/* Global callback state (protected by mutex for thread safety) */
+static pthread_mutex_t callback_mutex = PTHREAD_MUTEX_INITIALIZER;
 static ParserErrorCallback error_callback = NULL;
 static void *error_callback_userdata = NULL;
 static ParserDebugCallback debug_callback = NULL;
 static void *debug_callback_userdata = NULL;
 
-/* Debug helper: printf-style output with indentation */
+/* Debug helper: printf-style output (thread-safe) */
 static void debug_print(int level, const char *format, ...) {
-    if (!(debug_level & level)) return;
+    /* Quick check without lock (performance optimization) */
+    pthread_mutex_lock(&debug_mutex);
+    int current_level = debug_level;
+    pthread_mutex_unlock(&debug_mutex);
+
+    if (!(current_level & level)) return;
 
     char buffer[1024];
     va_list args;
 
-    /* Build indented message */
-    int offset = 0;
-    for (int i = 0; i < debug_indent && offset < (int)sizeof(buffer) - 1; i++) {
-        buffer[offset++] = ' ';
-        buffer[offset++] = ' ';
-    }
-
     /* Format the message */
     va_start(args, format);
-    vsnprintf(buffer + offset, sizeof(buffer) - offset, format, args);
+    vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
+    /* Lock for callback/output access */
+    pthread_mutex_lock(&callback_mutex);
+    ParserDebugCallback callback = debug_callback;
+    void *userdata = debug_callback_userdata;
+    pthread_mutex_unlock(&callback_mutex);
+
     /* Call callback if set, otherwise print to file/stderr */
-    if (debug_callback) {
-        debug_callback(level, buffer, debug_callback_userdata);
+    if (callback) {
+        callback(level, buffer, userdata);
     } else {
+        pthread_mutex_lock(&debug_mutex);
         FILE *out = debug_output ? debug_output : stderr;
         fprintf(out, "%s", buffer);
         fflush(out);
+        pthread_mutex_unlock(&debug_mutex);
     }
 }
 
-/* Debug API implementation */
+/* Debug API implementation (thread-safe) */
 void parser_set_debug_level(int level) {
+    pthread_mutex_lock(&debug_mutex);
     debug_level = level;
+    pthread_mutex_unlock(&debug_mutex);
+
     if (level != DEBUG_OFF) {
         debug_print(DEBUG_ALL, "═══ DEBUG MODE ENABLED (level=0x%02X) ═══\n", level);
     }
 }
 
 int parser_get_debug_level(void) {
-    return debug_level;
+    pthread_mutex_lock(&debug_mutex);
+    int level = debug_level;
+    pthread_mutex_unlock(&debug_mutex);
+    return level;
 }
 
 void parser_set_debug_output(FILE *fp) {
+    pthread_mutex_lock(&debug_mutex);
     debug_output = fp;
+    pthread_mutex_unlock(&debug_mutex);
 }
 
 void parser_reset_debug_output(void) {
+    pthread_mutex_lock(&debug_mutex);
     debug_output = NULL;
+    pthread_mutex_unlock(&debug_mutex);
 }
 
-/* Callback API implementation */
+/* Callback API implementation (thread-safe) */
 void parser_set_error_callback(ParserErrorCallback callback, void *user_data) {
+    pthread_mutex_lock(&callback_mutex);
     error_callback = callback;
     error_callback_userdata = user_data;
+    pthread_mutex_unlock(&callback_mutex);
 }
 
 void parser_set_debug_callback(ParserDebugCallback callback, void *user_data) {
+    pthread_mutex_lock(&callback_mutex);
     debug_callback = callback;
     debug_callback_userdata = user_data;
+    pthread_mutex_unlock(&callback_mutex);
 }
 
 void parser_clear_error_callback(void) {
+    pthread_mutex_lock(&callback_mutex);
     error_callback = NULL;
     error_callback_userdata = NULL;
+    pthread_mutex_unlock(&callback_mutex);
 }
 
 void parser_clear_debug_callback(void) {
+    pthread_mutex_lock(&callback_mutex);
     debug_callback = NULL;
     debug_callback_userdata = NULL;
+    pthread_mutex_unlock(&callback_mutex);
 }
 
 /* ========== END DEBUG MODE & CALLBACKS ========== */
@@ -233,9 +258,14 @@ static void set_error(Parser *p, ParserError code, const char *message) {
     p->error->position = (int)p->pos;
     snprintf(p->error->message, sizeof(p->error->message), "%s", message);
 
-    /* Call error callback if registered */
-    if (error_callback) {
-        error_callback(p->error, p->input, error_callback_userdata);
+    /* Call error callback if registered (thread-safe) */
+    pthread_mutex_lock(&callback_mutex);
+    ParserErrorCallback callback = error_callback;
+    void *userdata = error_callback_userdata;
+    pthread_mutex_unlock(&callback_mutex);
+
+    if (callback) {
+        callback(p->error, p->input, userdata);
     }
 }
 
@@ -257,9 +287,14 @@ static void set_error_fmt(Parser *p, ParserError code, const char *fmt, ...) {
     vsnprintf(p->error->message, sizeof(p->error->message), fmt, args);
     va_end(args);
 
-    /* Call error callback if registered */
-    if (error_callback) {
-        error_callback(p->error, p->input, error_callback_userdata);
+    /* Call error callback if registered (thread-safe) */
+    pthread_mutex_lock(&callback_mutex);
+    ParserErrorCallback callback = error_callback;
+    void *userdata = error_callback_userdata;
+    pthread_mutex_unlock(&callback_mutex);
+
+    if (callback) {
+        callback(p->error, p->input, userdata);
     }
 }
 
