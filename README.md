@@ -821,7 +821,12 @@ This is a complete, production-ready parser. Potential enhancements:
 
 ## 📄 License
 
-MIT License - Free for commercial and personal use.
+**Dual Licensed: GPL-3.0 / Commercial**
+
+- **Free (GPL-3.0)**: Students, researchers, hobbyists, and open-source projects
+- **Commercial License**: Proprietary software, closed-source products
+
+See [LICENSE](LICENSE) for GPL-3.0 terms and [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md) for commercial licensing options.
 
 ---
 
