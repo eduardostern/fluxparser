@@ -13,6 +13,7 @@
 #define PARSER_H
 
 #include <stdbool.h>
+#include <stdio.h>
 
 /* Parser limits */
 #define PARSER_MAX_EXPR_LENGTH 10000
@@ -104,6 +105,64 @@ double parse_expression(const char *expr);
  * DEPRECATED: Use parse_expression_with_vars_safe() for better error handling
  */
 double parse_expression_with_vars(const char *expr, VarContext *vars);
+
+/* DEBUG MODE & CALLBACKS */
+
+/* Debug levels (can be OR'ed together) */
+typedef enum {
+    DEBUG_OFF       = 0,      /* No debug output */
+    DEBUG_TOKENS    = 1 << 0, /* Show tokenization (1) */
+    DEBUG_AST       = 1 << 1, /* Show AST structure (2) */
+    DEBUG_EVAL      = 1 << 2, /* Show evaluation steps (4) */
+    DEBUG_VARS      = 1 << 3, /* Show variable lookups (8) */
+    DEBUG_FUNCS     = 1 << 4, /* Show function calls (16) */
+    DEBUG_OPTIMIZE  = 1 << 5, /* Show optimization steps (32) */
+    DEBUG_TIMING    = 1 << 6, /* Show timing information (64) */
+    DEBUG_ALL       = 0xFF    /* Enable all debug output (255) */
+} DebugLevel;
+
+/* Callback types for error and debug handling */
+
+/* Error callback: called when an error occurs
+ * Parameters:
+ *   - error: Error information structure
+ *   - expr: The expression being parsed
+ *   - user_data: User-provided context pointer
+ * Return: true to continue parsing (if possible), false to abort
+ */
+typedef bool (*ParserErrorCallback)(const ParserErrorInfo *error, const char *expr, void *user_data);
+
+/* Debug callback: called for debug events
+ * Parameters:
+ *   - level: Debug level of this message (DEBUG_TOKENS, DEBUG_EVAL, etc.)
+ *   - message: Debug message string
+ *   - user_data: User-provided context pointer
+ */
+typedef void (*ParserDebugCallback)(int level, const char *message, void *user_data);
+
+/* Set debug level (can OR multiple flags: DEBUG_TOKENS | DEBUG_AST) */
+void parser_set_debug_level(int level);
+
+/* Get current debug level */
+int parser_get_debug_level(void);
+
+/* Set debug output file (default: stderr) */
+void parser_set_debug_output(FILE *fp);
+
+/* Reset debug output to stderr */
+void parser_reset_debug_output(void);
+
+/* Set error callback (called when errors occur) */
+void parser_set_error_callback(ParserErrorCallback callback, void *user_data);
+
+/* Set debug callback (called for debug messages) */
+void parser_set_debug_callback(ParserDebugCallback callback, void *user_data);
+
+/* Clear error callback (revert to default stderr output) */
+void parser_clear_error_callback(void);
+
+/* Clear debug callback (revert to default stderr/file output) */
+void parser_clear_debug_callback(void);
 
 /* UTILITY FUNCTIONS */
 

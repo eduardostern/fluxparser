@@ -23,6 +23,91 @@
 #define STRINGIFY_HELPER(x) #x
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
 
+/* ========== DEBUG MODE & CALLBACKS ========== */
+
+/* Global debug state */
+static int debug_level = DEBUG_OFF;
+static FILE *debug_output = NULL;  /* NULL means stderr */
+static int debug_indent = 0;
+
+/* Global callback state */
+static ParserErrorCallback error_callback = NULL;
+static void *error_callback_userdata = NULL;
+static ParserDebugCallback debug_callback = NULL;
+static void *debug_callback_userdata = NULL;
+
+/* Debug helper: printf-style output with indentation */
+static void debug_print(int level, const char *format, ...) {
+    if (!(debug_level & level)) return;
+
+    char buffer[1024];
+    va_list args;
+
+    /* Build indented message */
+    int offset = 0;
+    for (int i = 0; i < debug_indent && offset < (int)sizeof(buffer) - 1; i++) {
+        buffer[offset++] = ' ';
+        buffer[offset++] = ' ';
+    }
+
+    /* Format the message */
+    va_start(args, format);
+    vsnprintf(buffer + offset, sizeof(buffer) - offset, format, args);
+    va_end(args);
+
+    /* Call callback if set, otherwise print to file/stderr */
+    if (debug_callback) {
+        debug_callback(level, buffer, debug_callback_userdata);
+    } else {
+        FILE *out = debug_output ? debug_output : stderr;
+        fprintf(out, "%s", buffer);
+        fflush(out);
+    }
+}
+
+/* Debug API implementation */
+void parser_set_debug_level(int level) {
+    debug_level = level;
+    if (level != DEBUG_OFF) {
+        debug_print(DEBUG_ALL, "═══ DEBUG MODE ENABLED (level=0x%02X) ═══\n", level);
+    }
+}
+
+int parser_get_debug_level(void) {
+    return debug_level;
+}
+
+void parser_set_debug_output(FILE *fp) {
+    debug_output = fp;
+}
+
+void parser_reset_debug_output(void) {
+    debug_output = NULL;
+}
+
+/* Callback API implementation */
+void parser_set_error_callback(ParserErrorCallback callback, void *user_data) {
+    error_callback = callback;
+    error_callback_userdata = user_data;
+}
+
+void parser_set_debug_callback(ParserDebugCallback callback, void *user_data) {
+    debug_callback = callback;
+    debug_callback_userdata = user_data;
+}
+
+void parser_clear_error_callback(void) {
+    error_callback = NULL;
+    error_callback_userdata = NULL;
+}
+
+void parser_clear_debug_callback(void) {
+    debug_callback = NULL;
+    debug_callback_userdata = NULL;
+}
+
+/* ========== END DEBUG MODE & CALLBACKS ========== */
+
 /* Thread-safe RNG with mutex protection (shared with ast.c) */
 pthread_mutex_t rng_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool random_seeded = false;
@@ -87,6 +172,34 @@ static double parse_power_expr(Parser *p);
 static double parse_unary_expr(Parser *p);
 static double parse_primary_expr(Parser *p);
 
+/* Token type to string (for debug output) */
+static const char* token_type_string(TokenType type) {
+    switch (type) {
+        case TOK_NUMBER: return "NUMBER";
+        case TOK_PLUS: return "PLUS";
+        case TOK_MINUS: return "MINUS";
+        case TOK_MULTIPLY: return "MULTIPLY";
+        case TOK_DIVIDE: return "DIVIDE";
+        case TOK_POWER: return "POWER";
+        case TOK_NOT: return "NOT";
+        case TOK_AND: return "AND";
+        case TOK_OR: return "OR";
+        case TOK_LPAREN: return "LPAREN";
+        case TOK_RPAREN: return "RPAREN";
+        case TOK_COMMA: return "COMMA";
+        case TOK_FUNCTION: return "FUNCTION";
+        case TOK_GREATER: return "GREATER";
+        case TOK_LESS: return "LESS";
+        case TOK_GREATER_EQ: return "GREATER_EQ";
+        case TOK_LESS_EQ: return "LESS_EQ";
+        case TOK_EQUAL: return "EQUAL";
+        case TOK_NOT_EQUAL: return "NOT_EQUAL";
+        case TOK_END: return "END";
+        case TOK_ERROR: return "ERROR";
+        default: return "UNKNOWN";
+    }
+}
+
 /* Timeout checking */
 static bool check_timeout(Parser *p) {
     if (p->timeout_us == 0) return true;  /* No timeout */
@@ -120,7 +233,10 @@ static void set_error(Parser *p, ParserError code, const char *message) {
     p->error->position = (int)p->pos;
     snprintf(p->error->message, sizeof(p->error->message), "%s", message);
 
-    /* Also print to stderr for backward compatibility */
+    /* Call error callback if registered */
+    if (error_callback) {
+        error_callback(p->error, p->input, error_callback_userdata);
+    }
 }
 
 static void set_error_fmt(Parser *p, ParserError code, const char *fmt, ...) {
@@ -141,7 +257,10 @@ static void set_error_fmt(Parser *p, ParserError code, const char *fmt, ...) {
     vsnprintf(p->error->message, sizeof(p->error->message), fmt, args);
     va_end(args);
 
-    /* Also print to stderr for backward compatibility */
+    /* Call error callback if registered */
+    if (error_callback) {
+        error_callback(p->error, p->input, error_callback_userdata);
+    }
 }
 
 static bool check_depth(Parser *p) {
@@ -169,6 +288,7 @@ static bool lookup_variable(Parser *p, const char *name, double *value) {
                 int idx = p->vars->mappings[i].index;
                 if (idx >= 0 && idx < p->vars->count) {
                     *value = p->vars->values[idx];
+                    debug_print(DEBUG_VARS, "[VAR] %s = %.6g (index %d)\n", name, *value, idx);
                     return true;
                 }
                 set_error_fmt(p, PARSER_ERROR_UNKNOWN_VAR,
@@ -187,6 +307,7 @@ static bool lookup_variable(Parser *p, const char *name, double *value) {
             int idx = c - 'A';
             if (idx < p->vars->count) {
                 *value = p->vars->values[idx];
+                debug_print(DEBUG_VARS, "[VAR] %s = %.6g (index %d)\n", name, *value, idx);
                 return true;
             }
         }
@@ -333,6 +454,22 @@ static void next_token(Parser *p) {
             p->current_token.type = TOK_ERROR;
             fprintf(stderr, "Error: Unexpected character '%c'\n", c);
             break;
+    }
+
+    /* Debug: show tokenization */
+    if (debug_level & DEBUG_TOKENS) {
+        if (p->current_token.type == TOK_NUMBER) {
+            debug_print(DEBUG_TOKENS, "[TOKEN] %s = %.6g\n",
+                       token_type_string(p->current_token.type),
+                       p->current_token.value);
+        } else if (p->current_token.type == TOK_FUNCTION) {
+            debug_print(DEBUG_TOKENS, "[TOKEN] %s '%s'\n",
+                       token_type_string(p->current_token.type),
+                       p->current_token.func_name);
+        } else {
+            debug_print(DEBUG_TOKENS, "[TOKEN] %s\n",
+                       token_type_string(p->current_token.type));
+        }
     }
 }
 
