@@ -10,9 +10,13 @@ I was born in 1976. I've lived through, and actively participated in, nearly fiv
 
 ### The Early Days (1982-1995)
 
-My first computer was a **TK-82C**—a Brazilian clone of the Sinclair ZX-81. 1KB of RAM. A membrane keyboard. Programs saved to cassette tapes. I was 6-7 years old.
+My first computer was a **TK-82C**—a Brazilian clone of the Sinclair ZX-81. 1KB of RAM. A membrane keyboard. Programs saved to cassette tapes. It belonged to my older brother **Marcelo**, who was 11 years my senior.
+
+Marcelo died on **December 21, 1982**, at just 17 years old, from acute leukemia. I was 6 years old. His TK-82C became mine, and with it, my journey into computing began.
 
 Then came **October 12, 1985**—**Dia das Crianças** (Brazilian Children's Day). My dad gave me a **TK-90X**, Microdigital's ZX Spectrum clone, with a whopping 48KB of RAM. I was 9 years old, and I was learning **Z80 assembly language**.
+
+**Every line of code I've written since carries a piece of Marcelo's legacy.**
 
 Not because I was some prodigy. Because that's what you had to learn if you wanted to do anything interesting on an 8-bit machine. You studied the CPU architecture. You counted clock cycles. You hand-optimized loops because the difference between 20 cycles and 30 cycles meant your game would run at 30fps instead of 20fps.
 
@@ -479,6 +483,16 @@ I chose mastery.
 **Contact:** eduardostern@icloud.com
 **License:** GPL-3.0 (free for non-commercial) | Commercial licenses available
 **GitHub:** https://github.com/eduardostern/fluxparser
+
+---
+
+## Dedication
+
+*In memory of **Marcelo Stern** (1965-1982)*
+
+*Your TK-82C started this journey. Your legacy lives in every line of code.*
+
+*December 21, 1982 - December 21, 2024: 42 years*
 
 ---
 

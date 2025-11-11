@@ -889,7 +889,9 @@ Overall:              ████████████ 12/10
 
 ### The Journey
 
-Born in 1976, I've witnessed and participated in nearly five decades of computing evolution. My first computer was a **TK-82C** (Brazilian ZX-81 clone) at age 6-7. Then on **October 12, 1985**—**Dia das Crianças** (Brazilian Children's Day)—my dad gave me a **TK-90X** (Microdigital's ZX Spectrum clone). I was 9 years old, learning **Z80 assembler** when most developers today weren't born yet.
+Born in 1976, I've witnessed and participated in nearly five decades of computing evolution. My first computer was a **TK-82C** (Brazilian ZX-81 clone)—it belonged to my brother **Marcelo**, who died at age 17 from acute leukemia on December 21, 1982. I was 6 years old. His computer became mine, and with it began my journey into programming.
+
+On **October 12, 1985**—**Dia das Crianças** (Brazilian Children's Day)—my dad gave me a **TK-90X** (Microdigital's ZX Spectrum clone). I was 9 years old, learning **Z80 assembler** when most developers today weren't born yet. Every line of code I've written since carries a piece of Marcelo's legacy.
 
 I lived through the **CGA era**, programmed in **Turbo Pascal** and **Turbo C**, wrote DOS TSRs using **INT 21h interrupts**, built database applications with **Borland C and Btrieve**, explored obscure operating systems (**Coherent Unix**, **BeOS**, **Walnut Creek Slackware** from CD-ROMs), managed **Novell NetWare** servers, and eventually found home in Linux and PostgreSQL.
 
