@@ -8,11 +8,11 @@
 
 I was born in 1976. I've lived through, and actively participated in, nearly five decades of computing evolution.
 
-### The Early Days (1986-1995)
+### The Early Days (1982-1995)
 
-My first computer was a **TK-82C**—a Brazilian clone of the Sinclair ZX-81. 1KB of RAM. A membrane keyboard. Programs saved to cassette tapes. Later came the **TK-90X**, Microdigital's ZX Spectrum clone, with a whopping 48KB of RAM.
+My first computer was a **TK-82C**—a Brazilian clone of the Sinclair ZX-81. 1KB of RAM. A membrane keyboard. Programs saved to cassette tapes. I was 6-7 years old.
 
-I was 10 years old, and I was learning **Z80 assembly language**.
+Then came **October 12, 1985**—**Dia das Crianças** (Brazilian Children's Day). My dad gave me a **TK-90X**, Microdigital's ZX Spectrum clone, with a whopping 48KB of RAM. I was 9 years old, and I was learning **Z80 assembly language**.
 
 Not because I was some prodigy. Because that's what you had to learn if you wanted to do anything interesting on an 8-bit machine. You studied the CPU architecture. You counted clock cycles. You hand-optimized loops because the difference between 20 cycles and 30 cycles meant your game would run at 30fps instead of 20fps.
 
