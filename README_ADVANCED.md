@@ -220,58 +220,52 @@ void validate_formula_editor(const char *expr) {
 
 ### Thread-Safe Components
 
-1. **Mutex-Protected Global State**
+1. **Mutex-Protected RNG**
    ```c
-   static pthread_mutex_t parser_mutex = PTHREAD_MUTEX_INITIALIZER;
+   static pthread_mutex_t rng_mutex = PTHREAD_MUTEX_INITIALIZER;
    ```
+   - Protects random number generation across all threads
+   - Ensures proper seeding and thread-safe rand() calls
 
-2. **Thread-Local Debug Mode**
-   ```c
-   static __thread bool debug_mode_local = false;
-   ```
-
-3. **Reentrant Parsing**
+2. **Reentrant Parsing**
    - All parser state in stack-allocated `Parser` struct
    - No shared mutable global state during parsing
+   - Each thread has its own parser context
 
 ### Usage
 
-#### Global Debug Mode (Thread-Safe)
+#### Basic Multi-Threaded Parsing
 
 ```c
-// Thread-safe, uses mutex
-set_debug_mode(true);   // Affects all threads
-
+// Each thread can parse independently
 // Thread 1
-parse("2 + 3");  // Uses debug_mode
+ParseResult r1 = parse_expression_safe("2 + 3");
 
 // Thread 2
-parse("4 + 5");  // Also uses debug_mode
+ParseResult r2 = parse_expression_safe("4 + 5");
+
+// No synchronization needed - parser is reentrant
 ```
 
-#### Thread-Local Debug Mode
-
-```c
-// Thread 1
-set_debug_mode_local(true);   // Only this thread
-parse("2 + 3");  // Debugs
-
-// Thread 2
-set_debug_mode_local(false);  // Independent
-parse("4 + 5");  // No debug
-```
-
-#### Per-Parse Configuration
+#### With Timeout Configuration
 
 ```c
 ParserConfig config = {
-    .thread_safe = true,   // Use thread-local debug
     .timeout_ms = 1000,
     .continue_on_error = false
 };
 
-// Each thread gets independent debug state
-parse_expression_ex(expr, vars, &config);
+// Safe to use from multiple threads
+ParseResult r = parse_expression_ex(expr, vars, &config);
+```
+
+#### Random Number Generation
+
+```c
+// random() and rnd() are thread-safe
+// Mutex automatically protects RNG state
+ParseResult r1 = parse_expression_safe("random()");  // Thread 1
+ParseResult r2 = parse_expression_safe("rnd()");     // Thread 2
 ```
 
 ### Multi-Threaded Example
@@ -281,9 +275,6 @@ parse_expression_ex(expr, vars, &config);
 
 void* worker_thread(void* arg) {
     ThreadData* data = arg;
-
-    // Thread-local debug
-    set_debug_mode_local(data->debug);
 
     for (int i = 0; i < 1000; i++) {
         ParseResult r = parse_expression_safe(data->expressions[i]);
@@ -320,12 +311,11 @@ int main() {
 ✅ **Safe:**
 - Multiple threads parsing different expressions
 - Simultaneous reads of const data (function tables, etc.)
-- Thread-local debug mode
 - Independent Parser structs
+- Random number generation (mutex-protected)
 
 ⚠️ **Requires Care:**
 - Shared VarContext (use const or lock)
-- Modifying global debug_mode (uses mutex automatically)
 - Logging/IO from parse errors (use your own mutex)
 
 ❌ **Not Safe:**
@@ -342,7 +332,7 @@ int main() {
 typedef struct {
     long timeout_ms;         // Timeout in milliseconds (0 = none)
     bool continue_on_error;  // Keep parsing after errors
-    bool thread_safe;        // Use thread-local debug mode
+    bool thread_safe;        // Reserved for future use
 } ParserConfig;
 ```
 
@@ -355,9 +345,6 @@ ParseResult parse_expression_ex(
     VarContext *vars,
     ParserConfig *config
 );
-
-// Thread-local debug control
-void set_debug_mode_local(bool enable);
 ```
 
 ### Complete Example
@@ -384,7 +371,7 @@ int main() {
     ParserConfig config = {
         .timeout_ms = 1000,        // 1 second max
         .continue_on_error = false, // Stop at first error
-        .thread_safe = true         // Thread-local debug
+        .thread_safe = true         // Reserved for future use
     };
 
     // Parse with all features
@@ -411,7 +398,7 @@ int main() {
 | **Comparisons** | ~0% (same as other operators) |
 | **Timeout** | ~1-2% (periodic time checks) |
 | **Error Recovery** | ~0.5% (error counting) |
-| **Thread Safety** | ~0.1% (mutex only on debug mode) |
+| **Thread Safety** | ~0.1% (RNG mutex, minimal) |
 | **Total** | ~2-3% overall |
 
 **Benchmarks:**
@@ -468,15 +455,16 @@ Test 6: Operator Precedence       6/6 PASS
 
 ### Enable Thread Safety
 
-```diff
-  // Old: Not thread-safe
-  set_debug_mode(true);
+Parser is thread-safe by default:
+- Reentrant design (no shared state)
+- RNG automatically protected with mutex
+- No configuration needed for multi-threaded use
 
-+ // New: Thread-safe with mutex
-+ set_debug_mode(true);  // Uses mutex now
-
-+ // Or: Thread-local
-+ set_debug_mode_local(true);  // This thread only
+```c
+// Just use from multiple threads
+pthread_t t1, t2;
+pthread_create(&t1, NULL, worker, expr1);
+pthread_create(&t2, NULL, worker, expr2);
 ```
 
 ---

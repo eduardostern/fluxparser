@@ -19,9 +19,6 @@
 #define PARSER_MAX_DEPTH 100
 #define PARSER_MAX_FUNC_ARGS 10
 
-/* Enable/disable debug output */
-extern bool debug_mode;
-
 /* Error codes */
 typedef enum {
     PARSER_OK = 0,
@@ -70,7 +67,7 @@ typedef struct {
 typedef struct {
     long timeout_ms;         /* Timeout in milliseconds (0 = no timeout) */
     bool continue_on_error;  /* Continue parsing after errors to collect all errors */
-    bool thread_safe;        /* Use thread-local debug mode */
+    bool thread_safe;        /* Reserved for future use */
 } ParserConfig;
 
 /* NEW SAFE API - Returns detailed error information */
@@ -109,12 +106,6 @@ double parse_expression(const char *expr);
 double parse_expression_with_vars(const char *expr, VarContext *vars);
 
 /* UTILITY FUNCTIONS */
-
-/* Set debug mode to show parser steps (thread-safe, global) */
-void set_debug_mode(bool enable);
-
-/* Set debug mode for current thread only (thread-local) */
-void set_debug_mode_local(bool enable);
 
 /* Get string description of error code */
 const char* parser_error_string(ParserError error);

@@ -159,6 +159,7 @@ make clean
 | `test_research` | AST, bytecode, differentiation tests |
 | `test_calculus` | Integration and equation solving tests |
 | `test_numerical` | Newton-Raphson numerical solver tests ⭐ NEW |
+| `calculate_pi` | Calculate Pi using Pythagorean method ⭐ NEW |
 | `example_usage` | Usage examples |
 | `test_safety` | Safety limit tests |
 | `demo_safety` | Interactive safety demo |
@@ -265,7 +266,7 @@ int main() {
     ParserConfig config = {
         .timeout_ms = 1000,         // 1 second timeout
         .continue_on_error = false, // Stop at first error
-        .thread_safe = true         // Use thread-local debug mode
+        .thread_safe = true         // Reserved for future use
     };
 
     float values[] = {25.0, 100.0};
@@ -385,10 +386,6 @@ ParseResult parse_expression_ex(const char *expr, VarContext *vars, ParserConfig
 
 // Error printing
 void parser_print_error(const char *expr, const ParseResult *result);
-
-// Debug mode
-void set_debug_mode(bool enable);           // Global (thread-safe)
-void set_debug_mode_local(bool enable);     // Thread-local
 ```
 
 ### Data Structures
@@ -542,8 +539,6 @@ printf("Final amount: $%.2f\n", r.value);
 void* worker(void* arg) {
     const char **expressions = arg;
 
-    set_debug_mode_local(false);  // Thread-local debug
-
     for (int i = 0; expressions[i] != NULL; i++) {
         ParseResult r = parse_expression_safe(expressions[i]);
         printf("[Thread %lu] %s = %.2f\n",
@@ -568,7 +563,31 @@ int main() {
 }
 ```
 
-### Example 5: Symbolic Math
+### Example 5: Calculate Pi (Pythagorean Method)
+
+```c
+// Iteratively calculates Pi using inscribed polygons
+// See calculate_pi.c for complete implementation
+
+VarMapping mappings[] = {{"S", 0}};  // S = side length
+double values[1] = {sqrt(3.0)};      // Start with triangle
+VarContext ctx = {.values = values, .count = 1, .mappings = mappings, .mapping_count = 1};
+
+// Pythagorean formula to double the polygon sides
+const char *next_side = "sqrt(2 - sqrt(4 - S^2))";
+
+for (int iteration = 0; iteration < 50; iteration++) {
+    double pi_approx = (sides * values[0]) / 2.0;
+    printf("Sides: %ld, Pi ≈ %.15f\n", sides, pi_approx);
+
+    // Calculate next side length using FluxParser
+    ParseResult r = parse_expression_with_vars_safe(next_side, &ctx);
+    values[0] = r.value;
+    sides *= 2;
+}
+```
+
+### Example 6: Symbolic Math
 
 ```c
 #include "ast.h"
@@ -630,8 +649,8 @@ ast_free(simplified);
 1. **Use bytecode for repeated evaluation**: Compile once, run many times
 2. **Pre-compile constants**: Use `#define` for PI, E instead of parsing
 3. **Cache parsed expressions**: Reuse ParseResult when possible
-4. **Use thread-local debug**: Avoid mutex overhead
-5. **Set reasonable timeouts**: 100-500ms for web services
+4. **Set reasonable timeouts**: 100-500ms for web services
+5. **Minimize random() calls**: RNG uses mutex protection
 
 ---
 

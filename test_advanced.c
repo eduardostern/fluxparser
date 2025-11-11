@@ -143,7 +143,6 @@ void* thread_worker(void* arg) {
     ThreadData* data = (ThreadData*)arg;
 
     /* Use thread-local debug mode */
-    set_debug_mode_local(false);
 
     for (int i = 0; i < data->iterations; i++) {
         /* Each thread evaluates different expressions */

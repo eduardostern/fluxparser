@@ -9,8 +9,6 @@ void print_usage() {
     printf("FluxParser - Interactive Mode\n");
     printf("=====================================\n");
     printf("Commands:\n");
-    printf("  debug on   - Enable debug mode\n");
-    printf("  debug off  - Disable debug mode\n");
     printf("  help       - Show this help message\n");
     printf("  quit/exit  - Exit the program\n");
     printf("\nSupported operations:\n");
@@ -67,7 +65,6 @@ int main(int argc, char *argv[]) {
         /* Check for debug flag */
         int expr_start = 1;
         if (argc > 2 && strcmp(argv[1], "-d") == 0) {
-            set_debug_mode(true);
             expr_start = 2;
         }
 
@@ -114,14 +111,6 @@ int main(int argc, char *argv[]) {
             printf("\n");
             print_usage();
             printf("\n");
-            continue;
-        } else if (strcmp(input, "debug on") == 0) {
-            set_debug_mode(true);
-            printf("Debug mode enabled\n");
-            continue;
-        } else if (strcmp(input, "debug off") == 0) {
-            set_debug_mode(false);
-            printf("Debug mode disabled\n");
             continue;
         }
 

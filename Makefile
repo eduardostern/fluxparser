@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -O2 -pthread
 LDFLAGS = -lm -pthread
 
-TARGETS = parser_test test_vars example_usage test_safety demo_safety test_advanced test_research test_calculus test_numerical test_new_features
+TARGETS = parser_test test_vars example_usage test_safety demo_safety test_advanced test_research test_calculus test_numerical test_new_features calculate_pi
 HEADERS = parser.h ast.h
 
 .PHONY: all clean run
@@ -37,6 +37,9 @@ test_numerical: test_numerical.o ast.o parser.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 test_new_features: test_new_features.o ast.o parser.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+calculate_pi: calculate_pi.o parser.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 %.o: %.c $(HEADERS)

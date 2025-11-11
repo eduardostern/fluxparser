@@ -23,9 +23,9 @@
 #define STRINGIFY_HELPER(x) #x
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
 
-/* Thread-safe RNG with mutex protection (shared with ast.c) */
-pthread_mutex_t rng_mutex = PTHREAD_MUTEX_INITIALIZER;
-bool random_seeded = false;
+/* Thread-safe RNG with mutex protection */
+static pthread_mutex_t rng_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool random_seeded = false;
 
 /* Token types */
 typedef enum {
@@ -121,6 +121,9 @@ static void set_error(Parser *p, ParserError code, const char *message) {
     snprintf(p->error->message, sizeof(p->error->message), "%s", message);
 
     /* Also print to stderr for backward compatibility */
+    if (debug_mode || debug_mode_local) {
+        fprintf(stderr, "Error at position %d: %s\n", (int)p->pos, message);
+    }
 }
 
 static void set_error_fmt(Parser *p, ParserError code, const char *fmt, ...) {
@@ -142,6 +145,9 @@ static void set_error_fmt(Parser *p, ParserError code, const char *fmt, ...) {
     va_end(args);
 
     /* Also print to stderr for backward compatibility */
+    if (debug_mode || debug_mode_local) {
+        fprintf(stderr, "Error at position %d: %s\n", (int)p->pos, p->error->message);
+    }
 }
 
 static bool check_depth(Parser *p) {
@@ -176,7 +182,8 @@ static bool lookup_variable(Parser *p, const char *name, double *value) {
                 return false;
             }
         }
-        /* Not found in mappings - might be a constant or function, return false without error */
+        set_error_fmt(p, PARSER_ERROR_UNKNOWN_VAR,
+                     "Unknown variable '%s'", name);
         return false;
     }
 
@@ -245,6 +252,9 @@ static void next_token(Parser *p) {
         if (lookup_variable(p, p->current_token.func_name, &var_value)) {
             p->current_token.type = TOK_NUMBER;
             p->current_token.value = var_value;
+            if (debug_mode) {
+                printf("Token: VARIABLE %s (%.2f)\n", p->current_token.func_name, var_value);
+            }
             return;
         }
 
@@ -252,15 +262,24 @@ static void next_token(Parser *p) {
         if (strcmp(p->current_token.func_name, "PI") == 0) {
             p->current_token.type = TOK_NUMBER;
             p->current_token.value = 3.14159265358979323846;
+            if (debug_mode) {
+                printf("Token: CONSTANT PI (%.2f)\n", p->current_token.value);
+            }
             return;
         }
         if (strcmp(p->current_token.func_name, "E") == 0) {
             p->current_token.type = TOK_NUMBER;
             p->current_token.value = 2.71828182845904523536;
+            if (debug_mode) {
+                printf("Token: CONSTANT E (%.2f)\n", p->current_token.value);
+            }
             return;
         }
 
         p->current_token.type = TOK_FUNCTION;
+        if (debug_mode) {
+            printf("Token: FUNCTION (%s)\n", p->current_token.func_name);
+        }
         return;
     }
 
@@ -268,32 +287,54 @@ static void next_token(Parser *p) {
     p->pos++;
     switch (c) {
         case '+':
-            p->current_token.type = TOK_PLUS;            break;
+            p->current_token.type = TOK_PLUS;
+            if (debug_mode) printf("Token: PLUS\n");
+            break;
         case '-':
-            p->current_token.type = TOK_MINUS;            break;
+            p->current_token.type = TOK_MINUS;
+            if (debug_mode) printf("Token: MINUS\n");
+            break;
         case '*':
-            p->current_token.type = TOK_MULTIPLY;            break;
+            p->current_token.type = TOK_MULTIPLY;
+            if (debug_mode) printf("Token: MULTIPLY\n");
+            break;
         case '/':
-            p->current_token.type = TOK_DIVIDE;            break;
+            p->current_token.type = TOK_DIVIDE;
+            if (debug_mode) printf("Token: DIVIDE\n");
+            break;
         case '^':
-            p->current_token.type = TOK_POWER;            break;
+            p->current_token.type = TOK_POWER;
+            if (debug_mode) printf("Token: POWER\n");
+            break;
         case '!':
             /* Check for != */
             if (p->input[p->pos] == '=') {
                 p->pos++;
-                p->current_token.type = TOK_NOT_EQUAL;            } else {
-                p->current_token.type = TOK_NOT;            }
+                p->current_token.type = TOK_NOT_EQUAL;
+                if (debug_mode) printf("Token: NOT_EQUAL\n");
+            } else {
+                p->current_token.type = TOK_NOT;
+                if (debug_mode) printf("Token: NOT\n");
+            }
             break;
         case '(':
-            p->current_token.type = TOK_LPAREN;            break;
+            p->current_token.type = TOK_LPAREN;
+            if (debug_mode) printf("Token: LPAREN\n");
+            break;
         case ')':
-            p->current_token.type = TOK_RPAREN;            break;
+            p->current_token.type = TOK_RPAREN;
+            if (debug_mode) printf("Token: RPAREN\n");
+            break;
         case ',':
-            p->current_token.type = TOK_COMMA;            break;
+            p->current_token.type = TOK_COMMA;
+            if (debug_mode) printf("Token: COMMA\n");
+            break;
         case '&':
             if (p->input[p->pos] == '&') {
                 p->pos++;
-                p->current_token.type = TOK_AND;            } else {
+                p->current_token.type = TOK_AND;
+                if (debug_mode) printf("Token: AND\n");
+            } else {
                 p->current_token.type = TOK_ERROR;
                 fprintf(stderr, "Error: Expected '&&' but got '&'\n");
             }
@@ -301,7 +342,9 @@ static void next_token(Parser *p) {
         case '|':
             if (p->input[p->pos] == '|') {
                 p->pos++;
-                p->current_token.type = TOK_OR;            } else {
+                p->current_token.type = TOK_OR;
+                if (debug_mode) printf("Token: OR\n");
+            } else {
                 p->current_token.type = TOK_ERROR;
                 fprintf(stderr, "Error: Expected '||' but got '|'\n");
             }
@@ -310,21 +353,31 @@ static void next_token(Parser *p) {
             /* Check for >= */
             if (p->input[p->pos] == '=') {
                 p->pos++;
-                p->current_token.type = TOK_GREATER_EQ;            } else {
-                p->current_token.type = TOK_GREATER;            }
+                p->current_token.type = TOK_GREATER_EQ;
+                if (debug_mode) printf("Token: GREATER_EQ\n");
+            } else {
+                p->current_token.type = TOK_GREATER;
+                if (debug_mode) printf("Token: GREATER\n");
+            }
             break;
         case '<':
             /* Check for <= */
             if (p->input[p->pos] == '=') {
                 p->pos++;
-                p->current_token.type = TOK_LESS_EQ;            } else {
-                p->current_token.type = TOK_LESS;            }
+                p->current_token.type = TOK_LESS_EQ;
+                if (debug_mode) printf("Token: LESS_EQ\n");
+            } else {
+                p->current_token.type = TOK_LESS;
+                if (debug_mode) printf("Token: LESS\n");
+            }
             break;
         case '=':
             /* Check for == */
             if (p->input[p->pos] == '=') {
                 p->pos++;
-                p->current_token.type = TOK_EQUAL;            } else {
+                p->current_token.type = TOK_EQUAL;
+                if (debug_mode) printf("Token: EQUAL\n");
+            } else {
                 p->current_token.type = TOK_ERROR;
                 fprintf(stderr, "Error: Expected '==' but got '='\n");
             }
@@ -338,7 +391,10 @@ static void next_token(Parser *p) {
 
 /* Evaluate a math function call */
 static double eval_function(const char *name, double *args, int arg_count, Parser *p) {
-    (void)p;  /* Unused parameter - kept for API consistency */
+    if (debug_mode) {
+        for (int i = 0; i < p->depth; i++) printf("  ");
+        printf("Calling function %s with %d argument(s)\n", name, arg_count);
+    }
 
     /* Zero-argument functions */
     if (strcmp(name, "RANDOM") == 0 || strcmp(name, "RND") == 0) {
@@ -346,15 +402,11 @@ static double eval_function(const char *name, double *args, int arg_count, Parse
             fprintf(stderr, "Error: %s expects 0 arguments, got %d\n", name, arg_count);
             return 0.0;
         }
-        /* Thread-safe RNG with mutex protection */
-        pthread_mutex_lock(&rng_mutex);
         if (!random_seeded) {
             srand(time(NULL));
             random_seeded = true;
         }
-        double r = (double)rand() / (double)RAND_MAX;
-        pthread_mutex_unlock(&rng_mutex);
-        return r;
+        return (double)rand() / (double)RAND_MAX;
     }
 
     /* One-argument functions */
@@ -420,6 +472,7 @@ static double parse_primary_expr(Parser *p) {
         p->depth--;
         return 0.0;
     }
+    debug_print(p, "PRIMARY", "Enter");
 
     double result = 0.0;
 
@@ -430,6 +483,10 @@ static double parse_primary_expr(Parser *p) {
 
     if (p->current_token.type == TOK_NUMBER) {
         result = p->current_token.value;
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("Value: %.2f\n", result);
+        }
         next_token(p);
     } else if (p->current_token.type == TOK_FUNCTION) {
         /* Function call */
@@ -437,6 +494,7 @@ static double parse_primary_expr(Parser *p) {
         strncpy(func_name, p->current_token.func_name, sizeof(func_name) - 1);
         func_name[sizeof(func_name) - 1] = '\0';
 
+        debug_print(p, "PRIMARY", "Parsing function call");
         next_token(p);
 
         /* Expect opening parenthesis */
@@ -479,7 +537,12 @@ static double parse_primary_expr(Parser *p) {
             result = eval_function(func_name, args, arg_count, p);
         }
 
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("Function %s result: %.2f\n", func_name, result);
+        }
     } else if (p->current_token.type == TOK_LPAREN) {
+        debug_print(p, "PRIMARY", "Parsing parenthesized expression");
         next_token(p);
         result = parse_or_expr(p);
         if (p->current_token.type == TOK_RPAREN) {
@@ -491,6 +554,7 @@ static double parse_primary_expr(Parser *p) {
         fprintf(stderr, "Error: Expected number, function, or '('\n");
     }
 
+    debug_print(p, "PRIMARY", "Exit");
     p->depth--;
     return result;
 }
@@ -498,19 +562,31 @@ static double parse_primary_expr(Parser *p) {
 /* Parse unary expression: !expr or primary */
 static double parse_unary_expr(Parser *p) {
     p->depth++;
+    debug_print(p, "UNARY", "Enter");
 
     double result;
 
     if (p->current_token.type == TOK_NOT) {
+        debug_print(p, "UNARY", "Parsing NOT");
         next_token(p);
         result = !parse_unary_expr(p);
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("NOT result: %.2f\n", result);
+        }
     } else if (p->current_token.type == TOK_MINUS) {
+        debug_print(p, "UNARY", "Parsing unary minus");
         next_token(p);
         result = -parse_unary_expr(p);
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("Unary minus result: %.2f\n", result);
+        }
     } else {
         result = parse_primary_expr(p);
     }
 
+    debug_print(p, "UNARY", "Exit");
     p->depth--;
     return result;
 }
@@ -518,15 +594,22 @@ static double parse_unary_expr(Parser *p) {
 /* Parse power expression: base ^ exponent (right associative) */
 static double parse_power_expr(Parser *p) {
     p->depth++;
+    debug_print(p, "POWER", "Enter");
 
     double result = parse_unary_expr(p);
 
     if (p->current_token.type == TOK_POWER) {
+        debug_print(p, "POWER", "Parsing exponentiation");
         next_token(p);
         double exponent = parse_power_expr(p);  /* Right associative */
         result = pow(result, exponent);
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("Power result: %.2f\n", result);
+        }
     }
 
+    debug_print(p, "POWER", "Exit");
     p->depth--;
     return result;
 }
@@ -534,6 +617,7 @@ static double parse_power_expr(Parser *p) {
 /* Parse multiplicative expression: * and / */
 static double parse_multiplicative_expr(Parser *p) {
     p->depth++;
+    debug_print(p, "MULTIPLICATIVE", "Enter");
 
     double result = parse_power_expr(p);
 
@@ -541,7 +625,9 @@ static double parse_multiplicative_expr(Parser *p) {
            p->current_token.type == TOK_DIVIDE) {
         TokenType op = p->current_token.type;
         if (op == TOK_MULTIPLY) {
+            debug_print(p, "MULTIPLICATIVE", "Parsing multiplication");
         } else {
+            debug_print(p, "MULTIPLICATIVE", "Parsing division");
         }
         next_token(p);
         double right = parse_power_expr(p);
@@ -556,8 +642,13 @@ static double parse_multiplicative_expr(Parser *p) {
             }
         }
 
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("%s result: %.2f\n", op == TOK_MULTIPLY ? "Multiply" : "Divide", result);
+        }
     }
 
+    debug_print(p, "MULTIPLICATIVE", "Exit");
     p->depth--;
     return result;
 }
@@ -565,6 +656,7 @@ static double parse_multiplicative_expr(Parser *p) {
 /* Parse additive expression: + and - */
 static double parse_additive_expr(Parser *p) {
     p->depth++;
+    debug_print(p, "ADDITIVE", "Enter");
 
     double result = parse_multiplicative_expr(p);
 
@@ -572,7 +664,9 @@ static double parse_additive_expr(Parser *p) {
            p->current_token.type == TOK_MINUS) {
         TokenType op = p->current_token.type;
         if (op == TOK_PLUS) {
+            debug_print(p, "ADDITIVE", "Parsing addition");
         } else {
+            debug_print(p, "ADDITIVE", "Parsing subtraction");
         }
         next_token(p);
         double right = parse_multiplicative_expr(p);
@@ -583,8 +677,13 @@ static double parse_additive_expr(Parser *p) {
             result -= right;
         }
 
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("%s result: %.2f\n", op == TOK_PLUS ? "Add" : "Subtract", result);
+        }
     }
 
+    debug_print(p, "ADDITIVE", "Exit");
     p->depth--;
     return result;
 }
@@ -596,6 +695,7 @@ static double parse_comparison_expr(Parser *p) {
         p->depth--;
         return 0.0;
     }
+    debug_print(p, "COMPARISON", "Enter");
 
     double result = parse_additive_expr(p);
 
@@ -608,6 +708,19 @@ static double parse_comparison_expr(Parser *p) {
         p->current_token.type == TOK_NOT_EQUAL) {
 
         TokenType op = p->current_token.type;
+        const char *op_name = "UNKNOWN";
+
+        switch (op) {
+            case TOK_GREATER: op_name = "GREATER"; break;
+            case TOK_LESS: op_name = "LESS"; break;
+            case TOK_GREATER_EQ: op_name = "GREATER_EQ"; break;
+            case TOK_LESS_EQ: op_name = "LESS_EQ"; break;
+            case TOK_EQUAL: op_name = "EQUAL"; break;
+            case TOK_NOT_EQUAL: op_name = "NOT_EQUAL"; break;
+            default: break;
+        }
+
+        debug_print(p, "COMPARISON", op_name);
         next_token(p);
         double right = parse_additive_expr(p);
 
@@ -635,8 +748,13 @@ static double parse_comparison_expr(Parser *p) {
                 break;
         }
 
+        if (debug_mode || debug_mode_local) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("Comparison result: %.2f\n", result);
+        }
     }
 
+    debug_print(p, "COMPARISON", "Exit");
     p->depth--;
     return result;
 }
@@ -648,15 +766,22 @@ static double parse_and_expr(Parser *p) {
         p->depth--;
         return 0.0;
     }
+    debug_print(p, "AND", "Enter");
 
     double result = parse_comparison_expr(p);
 
     while (p->current_token.type == TOK_AND) {
+        debug_print(p, "AND", "Parsing logical AND");
         next_token(p);
         double right = parse_comparison_expr(p);
         result = (result != 0.0) && (right != 0.0) ? 1.0 : 0.0;
+        if (debug_mode || debug_mode_local) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("AND result: %.2f\n", result);
+        }
     }
 
+    debug_print(p, "AND", "Exit");
     p->depth--;
     return result;
 }
@@ -664,20 +789,37 @@ static double parse_and_expr(Parser *p) {
 /* Parse OR expression: || */
 static double parse_or_expr(Parser *p) {
     p->depth++;
+    debug_print(p, "OR", "Enter");
 
     double result = parse_and_expr(p);
 
     while (p->current_token.type == TOK_OR) {
+        debug_print(p, "OR", "Parsing logical OR");
         next_token(p);
         double right = parse_and_expr(p);
         result = (result != 0.0) || (right != 0.0) ? 1.0 : 0.0;
+        if (debug_mode) {
+            for (int i = 0; i < p->depth; i++) printf("  ");
+            printf("OR result: %.2f\n", result);
+        }
     }
 
+    debug_print(p, "OR", "Exit");
     p->depth--;
     return result;
 }
 
 /* Public API */
+void set_debug_mode(bool enable) {
+    pthread_mutex_lock(&parser_mutex);
+    debug_mode = enable;
+    pthread_mutex_unlock(&parser_mutex);
+}
+
+void set_debug_mode_local(bool enable) {
+    debug_mode_local = enable;
+}
+
 double parse_expression(const char *expr) {
     if (!expr || !*expr) {
         fprintf(stderr, "Error: Empty expression\n");
@@ -695,6 +837,9 @@ double parse_expression(const char *expr) {
         .has_error = false
     };
 
+    if (debug_mode) {
+        printf("\n=== Parsing: %s ===\n", expr);
+    }
 
     next_token(&parser);
     double result = parse_or_expr(&parser);
@@ -703,6 +848,9 @@ double parse_expression(const char *expr) {
         fprintf(stderr, "Error: Unexpected tokens at end of expression\n");
     }
 
+    if (debug_mode) {
+        printf("=== Result: %.2f ===\n\n", result);
+    }
 
     return result;
 }
@@ -724,6 +872,23 @@ double parse_expression_with_vars(const char *expr, VarContext *vars) {
         .has_error = false
     };
 
+    if (debug_mode) {
+        printf("\n=== Parsing: %s ===\n", expr);
+        if (vars && vars->values) {
+            printf("=== Variables: ");
+            if (vars->mappings && vars->mapping_count > 0) {
+                for (int i = 0; i < vars->mapping_count; i++) {
+                    printf("%s=%.2f ", vars->mappings[i].name,
+                           vars->values[vars->mappings[i].index]);
+                }
+            } else {
+                for (int i = 0; i < vars->count && i < 26; i++) {
+                    printf("%c=%.2f ", 'A' + i, vars->values[i]);
+                }
+            }
+            printf("===\n");
+        }
+    }
 
     next_token(&parser);
     double result = parse_or_expr(&parser);
@@ -732,6 +897,9 @@ double parse_expression_with_vars(const char *expr, VarContext *vars) {
         fprintf(stderr, "Error: Unexpected tokens at end of expression\n");
     }
 
+    if (debug_mode) {
+        printf("=== Result: %.2f ===\n\n", result);
+    }
 
     return result;
 }
@@ -792,6 +960,23 @@ ParseResult parse_expression_with_vars_safe(const char *expr, VarContext *vars) 
         .has_error = false
     };
 
+    if (debug_mode) {
+        printf("\n=== Parsing (SAFE): %s ===\n", expr);
+        if (vars && vars->values) {
+            printf("=== Variables: ");
+            if (vars->mappings && vars->mapping_count > 0) {
+                for (int i = 0; i < vars->mapping_count; i++) {
+                    printf("%s=%.2f ", vars->mappings[i].name,
+                           vars->values[vars->mappings[i].index]);
+                }
+            } else {
+                for (int i = 0; i < vars->count && i < 26; i++) {
+                    printf("%c=%.2f ", 'A' + i, vars->values[i]);
+                }
+            }
+            printf("===\n");
+        }
+    }
 
     /* Parse expression */
     next_token(&parser);
@@ -805,6 +990,15 @@ ParseResult parse_expression_with_vars_safe(const char *expr, VarContext *vars) 
 
     result.has_error = parser.has_error;
 
+    if (debug_mode) {
+        printf("=== Max depth: %d ===\n", parser.max_depth_reached);
+        if (result.has_error) {
+            printf("=== Error: %s ===\n", result.error.message);
+        } else {
+            printf("=== Result: %.2f ===\n", result.value);
+        }
+        printf("\n");
+    }
 
     return result;
 }
@@ -847,6 +1041,9 @@ ParseResult parse_expression_ex(const char *expr, VarContext *vars, ParserConfig
         return result;
     }
 
+    /* Use thread-safe debug mode if requested */
+    bool use_debug = config && config->thread_safe ? debug_mode_local : debug_mode;
+
     /* Initialize parser with full configuration */
     Parser parser = {
         .input = expr,
@@ -867,6 +1064,30 @@ ParseResult parse_expression_ex(const char *expr, VarContext *vars, ParserConfig
         gettimeofday(&parser.start_time, NULL);
     }
 
+    if (use_debug) {
+        printf("\n=== Parsing (EX): %s ===\n", expr);
+        if (config) {
+            printf("=== Config: timeout=%ldms, error_recovery=%s, thread_safe=%s ===\n",
+                   config->timeout_ms,
+                   config->continue_on_error ? "on" : "off",
+                   config->thread_safe ? "on" : "off");
+        }
+        if (vars && vars->values) {
+            printf("=== Variables: ");
+            if (vars->mappings && vars->mapping_count > 0) {
+                for (int i = 0; i < vars->mapping_count; i++) {
+                    printf("%s=%.2f ", vars->mappings[i].name,
+                           vars->values[vars->mappings[i].index]);
+                }
+            } else {
+                for (int i = 0; i < vars->count && i < 26; i++) {
+                    printf("%c=%.2f ", 'A' + i, vars->values[i]);
+                }
+            }
+            printf("===\n");
+        }
+    }
+
     /* Parse expression */
     next_token(&parser);
     result.value = parse_or_expr(&parser);
@@ -878,6 +1099,17 @@ ParseResult parse_expression_ex(const char *expr, VarContext *vars, ParserConfig
     }
 
     result.has_error = parser.has_error;
+
+    if (use_debug) {
+        printf("=== Max depth: %d ===\n", parser.max_depth_reached);
+        printf("=== Error count: %d ===\n", parser.error_count);
+        if (result.has_error) {
+            printf("=== Error: %s ===\n", result.error.message);
+        } else {
+            printf("=== Result: %.2f ===\n", result.value);
+        }
+        printf("\n");
+    }
 
     return result;
 }

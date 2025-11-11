@@ -153,9 +153,7 @@ void test_debug_mode() {
         .mapping_count = 0
     };
 
-    set_debug_mode(true);
     double result = parse_expression_with_vars("a * a + b * b", &ctx);
-    set_debug_mode(false);
 
     printf("Final result: %.2f\n\n", result);
 }

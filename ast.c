@@ -14,6 +14,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <pthread.h>
+#include <time.h>
+
+/* Thread-safe RNG - shared with parser.c */
+extern pthread_mutex_t rng_mutex;
+extern bool random_seeded;
 
 /* ============================================================================
  * AST CONSTRUCTION
@@ -159,7 +165,15 @@ static double lookup_var(const char *name, VarContext *vars) {
 static double eval_function(const char *name, double *args, int arg_count) {
     /* Zero-argument */
     if (strcmp(name, "RANDOM") == 0 || strcmp(name, "RND") == 0) {
-        return (double)rand() / (double)RAND_MAX;
+        /* Thread-safe RNG with mutex protection */
+        pthread_mutex_lock(&rng_mutex);
+        if (!random_seeded) {
+            srand(time(NULL));
+            random_seeded = true;
+        }
+        double r = (double)rand() / (double)RAND_MAX;
+        pthread_mutex_unlock(&rng_mutex);
+        return r;
     }
 
     /* One-argument */
@@ -1748,7 +1762,15 @@ static double vm_eval_function(const char *name, double *args, int arg_count) {
     /* Reuse the same function evaluation as AST */
     /* Zero-argument */
     if (strcmp(name, "RANDOM") == 0 || strcmp(name, "RND") == 0) {
-        return (double)rand() / (double)RAND_MAX;
+        /* Thread-safe RNG with mutex protection */
+        pthread_mutex_lock(&rng_mutex);
+        if (!random_seeded) {
+            srand(time(NULL));
+            random_seeded = true;
+        }
+        double r = (double)rand() / (double)RAND_MAX;
+        pthread_mutex_unlock(&rng_mutex);
+        return r;
     }
 
     /* One-argument */
