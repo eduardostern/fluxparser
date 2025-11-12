@@ -8,7 +8,7 @@
 
 I was born in 1976. I've lived through, and actively participated in, nearly five decades of computing evolution.
 
-### The Early Days (1982-1995)
+### The Early Days (1982-1988)
 
 My first computer was a **TK-82C**—a Brazilian clone of the Sinclair ZX-81. 1KB of RAM. A membrane keyboard. Programs saved to cassette tapes. It belonged to my older brother **Marcelo**, who was 11 years my senior.
 
@@ -24,7 +24,7 @@ I hex-edited cassette tapes to crack copy protection. I typed in BASIC programs 
 
 **This taught me to understand computers from the ground up.**
 
-### The PC Era (1995-2005)
+### The PC Era (1988-1996)
 
 When I finally got a PC, it had a **CGA card**. Four colors. 320x200 resolution. It was glorious.
 
@@ -49,7 +49,7 @@ I managed **Novell NetWare** servers. IPX/SPX networking. No web interface—jus
 
 **This taught me that most "new" ideas are old ideas with better marketing.**
 
-### The Modern Era (2005-Present)
+### The Modern Era (1996-Present)
 
 I moved to **Windows programming** (Win32 API), **Delphi** (Pascal for Windows), and eventually back to my roots: **Linux and PostgreSQL**.
 
