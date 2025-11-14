@@ -21,7 +21,8 @@ typedef enum {
     AST_VARIABLE,
     AST_BINARY_OP,
     AST_UNARY_OP,
-    AST_FUNCTION_CALL
+    AST_FUNCTION_CALL,
+    AST_TENSOR              /* Tensor/Matrix (for ML operations) */
 } ASTNodeType;
 
 /* Binary operators */
@@ -46,6 +47,29 @@ typedef enum {
     OP_NEGATE,
     OP_NOT
 } UnaryOp;
+
+/* ============================================================================
+ * TENSOR/MATRIX SUPPORT (Phase 1: LLM Parser)
+ * ============================================================================ */
+
+/* Tensor structure - multi-dimensional array for ML operations */
+typedef struct {
+    double *data;           /* Flat array of values (row-major order) */
+    int *shape;             /* Dimensions: [dim0, dim1, ..., dim(rank-1)] */
+    int rank;               /* Number of dimensions (0=scalar, 1=vector, 2=matrix, etc.) */
+    int size;               /* Total number of elements (product of shape) */
+    int ref_count;          /* Reference counting for memory management */
+} Tensor;
+
+/* Matrix operations */
+typedef enum {
+    OP_MATMUL,              /* Matrix multiplication */
+    OP_DOT,                 /* Dot product (vectors) */
+    OP_TRANSPOSE,           /* Matrix transpose */
+    OP_RESHAPE,             /* Change tensor shape */
+    OP_BROADCAST_ADD,       /* Broadcasting addition */
+    OP_BROADCAST_MULTIPLY   /* Broadcasting multiplication */
+} MatrixOp;
 
 /* Forward declaration */
 typedef struct ASTNode ASTNode;
@@ -83,6 +107,11 @@ struct ASTNode {
             ASTNode **args;
             int arg_count;
         } function;
+
+        /* TENSOR */
+        struct {
+            Tensor *tensor;     /* Pointer to tensor data */
+        } tensor;
     } data;
 };
 
@@ -113,6 +142,73 @@ ASTNode* ast_differentiate(const ASTNode *node, const char *var_name);
 
 /* Symbolic Integration */
 ASTNode* ast_integrate(const ASTNode *node, const char *var_name);
+
+/* Numerical Integration */
+typedef enum {
+    INTEGRATE_TRAPEZOIDAL,
+    INTEGRATE_SIMPSON
+} IntegrationMethod;
+
+/* Numerical integration using trapezoidal rule */
+double ast_integrate_numerical_trapezoidal(
+    const ASTNode *expr,
+    const char *var_name,
+    double a,
+    double b,
+    int steps
+);
+
+/* Numerical integration using Simpson's rule */
+double ast_integrate_numerical_simpson(
+    const ASTNode *expr,
+    const char *var_name,
+    double a,
+    double b,
+    int steps
+);
+
+/* General numerical integration with method selection */
+double ast_integrate_numerical(
+    const ASTNode *expr,
+    const char *var_name,
+    double a,
+    double b,
+    int steps,
+    IntegrationMethod method
+);
+
+/* Partial Derivatives & Gradient */
+
+/* Compute partial derivative ∂f/∂var (alias for ast_differentiate for clarity) */
+ASTNode* ast_partial_derivative(const ASTNode *node, const char *var_name);
+
+/* Gradient vector structure */
+typedef struct {
+    ASTNode **components;  /* Array of partial derivatives */
+    int count;             /* Number of components */
+    char **var_names;      /* Variable names for reference */
+} Gradient;
+
+/* Compute gradient vector ∇f = [∂f/∂x₁, ∂f/∂x₂, ...] */
+Gradient ast_gradient(const ASTNode *node, const char **var_names, int var_count);
+
+/* Free gradient structure */
+void gradient_free(Gradient *grad);
+
+/* Evaluate gradient at a point */
+double* gradient_evaluate(const Gradient *grad, VarContext *vars);
+
+/* Taylor Series Expansion */
+
+/* Expand f(x) as Taylor series around x=center up to given order
+ * Returns: c₀ + c₁(x-center) + c₂(x-center)²/2! + ... + cₙ(x-center)ⁿ/n!
+ */
+ASTNode* ast_taylor_series(
+    const ASTNode *expr,
+    const char *var_name,
+    double center,
+    int order
+);
 
 /* Expression Simplification */
 ASTNode* ast_simplify(ASTNode *node);
@@ -146,6 +242,147 @@ typedef struct {
 
 NumericalSolveResult ast_solve_numerical(ASTNode *equation, const char *var_name,
                                           double initial_guess, double tolerance, int max_iterations);
+
+/* ============================================================================
+ * OPTIMIZATION ENGINE
+ * ============================================================================ */
+
+/* Optimization methods */
+typedef enum {
+    OPTIMIZER_GRADIENT_DESCENT,        /* Basic gradient descent */
+    OPTIMIZER_GRADIENT_DESCENT_MOMENTUM, /* Gradient descent with momentum */
+    OPTIMIZER_ADAM,                    /* Adaptive Moment Estimation (Adam) */
+    OPTIMIZER_CONJUGATE_GRADIENT       /* Conjugate gradient method */
+} OptimizerType;
+
+/* Optimizer configuration */
+typedef struct {
+    double learning_rate;      /* Step size (typically 0.001 to 0.1) */
+    double tolerance;          /* Convergence threshold */
+    int max_iterations;        /* Maximum number of iterations */
+    bool verbose;              /* Print progress during optimization */
+
+    /* Momentum-specific */
+    double momentum;           /* Momentum coefficient (typically 0.9) */
+
+    /* Adam-specific */
+    double beta1;              /* First moment decay (typically 0.9) */
+    double beta2;              /* Second moment decay (typically 0.999) */
+    double epsilon;            /* Small constant for numerical stability (1e-8) */
+
+    /* Conjugate gradient specific */
+    int restart_iterations;    /* Restart CG every N iterations (0 = no restart) */
+} OptimizerConfig;
+
+/* Optimization result */
+typedef struct {
+    double *solution;          /* Optimized variable values */
+    double final_value;        /* Final objective function value */
+    int iterations;            /* Number of iterations performed */
+    bool converged;            /* Whether optimizer converged */
+    double *history;           /* History of objective values (if verbose) */
+    int history_count;         /* Number of history entries */
+    char error_message[256];   /* Error message if failed */
+} OptimizationResult;
+
+/* Create default optimizer configuration */
+OptimizerConfig optimizer_config_default(OptimizerType type);
+
+/* Minimize objective function
+ * expr: Objective function to minimize f(x1, x2, ..., xn)
+ * var_names: Array of variable names ["x", "y", "z", ...]
+ * var_count: Number of variables
+ * initial_guess: Starting point for optimization
+ * config: Optimizer configuration
+ * type: Optimization method to use
+ */
+OptimizationResult ast_minimize(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config,
+    OptimizerType type
+);
+
+/* Maximize objective function (minimizes -f) */
+OptimizationResult ast_maximize(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config,
+    OptimizerType type
+);
+
+/* Free optimization result */
+void optimization_result_free(OptimizationResult *result);
+
+/* Line search for optimal step size (used internally by optimizers) */
+double line_search_backtracking(
+    const ASTNode *expr,
+    VarContext *ctx,
+    const double *position,
+    const double *direction,
+    int var_count,
+    double alpha_init,
+    double rho,
+    double c
+);
+
+/* ============================================================================
+ * TENSOR/MATRIX API (Phase 1: LLM Parser)
+ * ============================================================================ */
+
+/* Tensor Creation & Management */
+Tensor* tensor_create(const int *shape, int rank);
+Tensor* tensor_create_from_data(const double *data, const int *shape, int rank);
+Tensor* tensor_zeros(const int *shape, int rank);
+Tensor* tensor_ones(const int *shape, int rank);
+Tensor* tensor_random(const int *shape, int rank);  /* Uniform [0,1] */
+Tensor* tensor_randn(const int *shape, int rank);   /* Normal N(0,1) */
+void tensor_free(Tensor *tensor);
+Tensor* tensor_clone(const Tensor *tensor);
+void tensor_retain(Tensor *tensor);   /* Increment ref count */
+void tensor_release(Tensor *tensor);  /* Decrement ref count, free if 0 */
+
+/* Tensor Properties */
+void tensor_print(const Tensor *tensor);
+int tensor_get_size(const Tensor *tensor);
+bool tensor_same_shape(const Tensor *a, const Tensor *b);
+
+/* Tensor Operations (Element-wise) */
+Tensor* tensor_add(const Tensor *a, const Tensor *b);
+Tensor* tensor_subtract(const Tensor *a, const Tensor *b);
+Tensor* tensor_multiply(const Tensor *a, const Tensor *b);  /* Element-wise (Hadamard) */
+Tensor* tensor_divide(const Tensor *a, const Tensor *b);
+Tensor* tensor_negate(const Tensor *a);
+
+/* Scalar Operations */
+Tensor* tensor_add_scalar(const Tensor *a, double scalar);
+Tensor* tensor_multiply_scalar(const Tensor *a, double scalar);
+
+/* Matrix Operations */
+Tensor* tensor_matmul(const Tensor *a, const Tensor *b);    /* Matrix multiplication */
+Tensor* tensor_transpose(const Tensor *a);                  /* Transpose (2D only) */
+Tensor* tensor_dot(const Tensor *a, const Tensor *b);       /* Dot product (1D only) */
+
+/* Activation Functions (Element-wise) */
+Tensor* tensor_relu(const Tensor *x);
+Tensor* tensor_sigmoid(const Tensor *x);
+Tensor* tensor_tanh(const Tensor *x);
+Tensor* tensor_softmax(const Tensor *x);  /* Along last dimension */
+
+/* Reduction Operations */
+double tensor_sum(const Tensor *x);
+double tensor_mean(const Tensor *x);
+double tensor_max(const Tensor *x);
+double tensor_min(const Tensor *x);
+
+/* AST Tensor Operations */
+ASTNode* ast_create_tensor(Tensor *tensor);
+ASTNode* ast_tensor_matmul(ASTNode *a, ASTNode *b);
+ASTNode* ast_tensor_add(ASTNode *a, ASTNode *b);
 
 /* Bytecode Compilation */
 typedef enum {

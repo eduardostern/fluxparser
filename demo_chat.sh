@@ -1,0 +1,40 @@
+#!/bin/bash
+# Demo chat session with trained Shakespeare model
+
+echo "╔══════════════════════════════════════════════════╗"
+echo "║  FluxParser - Chat with Trained Shakespeare Bot ║"
+echo "╚══════════════════════════════════════════════════╝"
+echo ""
+echo "Model: Tiny transformer (46K params)"
+echo "Training: 2000 iterations on 432 chars"
+echo "Loss: 3.82 → 2.84"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "🎭 Prompt 1: \"To be\""
+./generate_v2 models/model_final.bin --prompt "To be" 2>/dev/null | grep -A 5 "Generating"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "🎭 Prompt 2: \"Whether\""
+./generate_v2 models/model_final.bin --prompt "Whether" 2>/dev/null | grep -A 5 "Generating"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "🎭 Prompt 3: \"And by\""
+./generate_v2 models/model_final.bin --prompt "And by" 2>/dev/null | grep -A 5 "Generating"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "📊 What's happening:"
+echo "  • Model learned character patterns from Shakespeare"
+echo "  • Generates 'Shakespeare-like' gibberish"
+echo "  • For better results: train longer or use --small/--medium"
+echo ""
+echo "💡 Try it yourself:"
+echo "  ./generate_v2 models/model_final.bin --prompt \"Your text\""
+echo ""

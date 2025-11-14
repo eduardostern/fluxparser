@@ -87,6 +87,9 @@ void ast_free(ASTNode *node) {
             }
             free(node->data.function.args);
             break;
+        case AST_TENSOR:
+            tensor_release(node->data.tensor.tensor);
+            break;
         default:
             break;
     }
@@ -127,6 +130,11 @@ ASTNode* ast_clone(const ASTNode *node) {
                 args,
                 node->data.function.arg_count
             );
+        }
+
+        case AST_TENSOR: {
+            Tensor *cloned_tensor = tensor_clone(node->data.tensor.tensor);
+            return ast_create_tensor(cloned_tensor);
         }
     }
 
@@ -259,6 +267,10 @@ double ast_evaluate(const ASTNode *node, VarContext *vars) {
             }
             return eval_function(node->data.function.name, args, node->data.function.arg_count);
         }
+
+        case AST_TENSOR:
+            /* Tensors can't be evaluated to scalar - return mean as representative value */
+            return tensor_mean(node->data.tensor.tensor);
     }
 
     return 0.0;
@@ -317,6 +329,15 @@ static void ast_print_helper(const ASTNode *node, int indent) {
             for (int i = 0; i < node->data.function.arg_count; i++) {
                 ast_print_helper(node->data.function.args[i], indent + 1);
             }
+            break;
+
+        case AST_TENSOR:
+            printf("TENSOR: shape=[");
+            for (int i = 0; i < node->data.tensor.tensor->rank; i++) {
+                printf("%d", node->data.tensor.tensor->shape[i]);
+                if (i < node->data.tensor.tensor->rank - 1) printf(",");
+            }
+            printf("], size=%d\n", node->data.tensor.tensor->size);
             break;
     }
 }
@@ -387,6 +408,17 @@ static void ast_to_string_helper(const ASTNode *node, char *buffer, size_t *offs
             }
             *offset += snprintf(buffer + *offset, buffer_size - *offset, ")");
             break;
+
+        case AST_TENSOR:
+            *offset += snprintf(buffer + *offset, buffer_size - *offset, "Tensor[");
+            for (int i = 0; i < node->data.tensor.tensor->rank; i++) {
+                *offset += snprintf(buffer + *offset, buffer_size - *offset, "%d", node->data.tensor.tensor->shape[i]);
+                if (i < node->data.tensor.tensor->rank - 1) {
+                    *offset += snprintf(buffer + *offset, buffer_size - *offset, "x");
+                }
+            }
+            *offset += snprintf(buffer + *offset, buffer_size - *offset, "]");
+            break;
     }
 }
 
@@ -450,6 +482,10 @@ int ast_count_operations(const ASTNode *node) {
             }
             return count;
         }
+
+        case AST_TENSOR:
+            /* Tensors are data, not operations */
+            return 0;
     }
 
     return 0;
@@ -619,9 +655,831 @@ ASTNode* ast_differentiate(const ASTNode *node, const char *var_name) {
                 return ast_create_number(0.0);
             }
         }
+
+        case AST_TENSOR:
+            /* Tensor differentiation not supported - constant w.r.t scalar variables */
+            return ast_create_number(0.0);
     }
 
     return ast_create_number(0.0);
+}
+
+/* ============================================================================
+ * PARTIAL DERIVATIVES & GRADIENT
+ * ============================================================================ */
+
+/* Compute partial derivative ∂f/∂var
+ * This is just an alias for ast_differentiate for clarity in multi-variable contexts
+ */
+ASTNode* ast_partial_derivative(const ASTNode *node, const char *var_name) {
+    return ast_differentiate(node, var_name);
+}
+
+/* Compute gradient vector ∇f = [∂f/∂x₁, ∂f/∂x₂, ..., ∂f/∂xₙ] */
+Gradient ast_gradient(const ASTNode *node, const char **var_names, int var_count) {
+    Gradient grad;
+    grad.components = NULL;
+    grad.count = 0;
+    grad.var_names = NULL;
+
+    if (!node || !var_names || var_count <= 0) {
+        return grad;
+    }
+
+    /* Allocate arrays */
+    grad.components = malloc(sizeof(ASTNode*) * var_count);
+    grad.var_names = malloc(sizeof(char*) * var_count);
+    grad.count = var_count;
+
+    /* Compute partial derivative for each variable */
+    for (int i = 0; i < var_count; i++) {
+        grad.components[i] = ast_partial_derivative(node, var_names[i]);
+
+        /* Copy variable name */
+        grad.var_names[i] = malloc(strlen(var_names[i]) + 1);
+        strcpy(grad.var_names[i], var_names[i]);
+    }
+
+    return grad;
+}
+
+/* Free gradient structure */
+void gradient_free(Gradient *grad) {
+    if (!grad) return;
+
+    if (grad->components) {
+        for (int i = 0; i < grad->count; i++) {
+            ast_free(grad->components[i]);
+        }
+        free(grad->components);
+    }
+
+    if (grad->var_names) {
+        for (int i = 0; i < grad->count; i++) {
+            free(grad->var_names[i]);
+        }
+        free(grad->var_names);
+    }
+
+    grad->components = NULL;
+    grad->var_names = NULL;
+    grad->count = 0;
+}
+
+/* Evaluate gradient at a point */
+double* gradient_evaluate(const Gradient *grad, VarContext *vars) {
+    if (!grad || grad->count <= 0) return NULL;
+
+    double *result = malloc(sizeof(double) * grad->count);
+
+    for (int i = 0; i < grad->count; i++) {
+        result[i] = ast_evaluate(grad->components[i], vars);
+    }
+
+    return result;
+}
+
+/* ============================================================================
+ * TAYLOR SERIES EXPANSION
+ * ============================================================================ */
+
+/* Helper: Compute factorial */
+static double factorial(int n) {
+    if (n <= 1) return 1.0;
+    double result = 1.0;
+    for (int i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+
+/* Expand f(x) as Taylor series around x=center up to given order
+ * Returns: f(c) + f'(c)(x-c) + f''(c)(x-c)²/2! + ... + f⁽ⁿ⁾(c)(x-c)ⁿ/n!
+ */
+ASTNode* ast_taylor_series(
+    const ASTNode *expr,
+    const char *var_name,
+    double center,
+    int order
+) {
+    if (!expr || order < 0) return NULL;
+
+    /* Build the Taylor series term by term */
+    ASTNode *series = NULL;
+    ASTNode *current_derivative = ast_clone(expr);
+
+    /* Variable mapping for evaluating derivatives at center */
+    VarMapping mapping = {.name = var_name, .index = 0};
+    double center_val = center;
+    VarContext ctx = {
+        .values = &center_val,
+        .count = 1,
+        .mappings = &mapping,
+        .mapping_count = 1
+    };
+
+    /* Create (x - center) term */
+    ASTNode *x_minus_c = NULL;
+    if (fabs(center) < 1e-12) {
+        /* If center = 0, just use x */
+        x_minus_c = ast_create_variable(var_name);
+    } else {
+        /* x - c */
+        x_minus_c = ast_create_binary_op(OP_SUBTRACT,
+            ast_create_variable(var_name),
+            ast_create_number(center)
+        );
+    }
+
+    for (int n = 0; n <= order; n++) {
+        /* Evaluate nth derivative at center point */
+        double deriv_at_center = ast_evaluate(current_derivative, &ctx);
+
+        /* Check for NaN or inf - can happen with unsimplified expressions containing x^(-1) at x=0 */
+        if (isnan(deriv_at_center) || isinf(deriv_at_center)) {
+            /* Stop expansion here - higher derivatives are problematic */
+            break;
+        }
+
+        /* Create term: f⁽ⁿ⁾(c) * (x-c)ⁿ / n! */
+        ASTNode *term = NULL;
+
+        if (n == 0) {
+            /* Constant term: f(c) */
+            term = ast_create_number(deriv_at_center);
+        } else {
+            /* Coefficient: f⁽ⁿ⁾(c) / n! */
+            double coeff = deriv_at_center / factorial(n);
+
+            if (fabs(coeff) > 1e-12) {  /* Skip negligible terms */
+                /* (x - c)ⁿ */
+                ASTNode *power_term = NULL;
+                if (n == 1) {
+                    power_term = ast_clone(x_minus_c);
+                } else {
+                    power_term = ast_create_binary_op(OP_POWER,
+                        ast_clone(x_minus_c),
+                        ast_create_number((double)n)
+                    );
+                }
+
+                /* coeff * (x - c)ⁿ */
+                if (fabs(coeff - 1.0) < 1e-12) {
+                    /* Coefficient is 1, just use power term */
+                    term = power_term;
+                } else {
+                    term = ast_create_binary_op(OP_MULTIPLY,
+                        ast_create_number(coeff),
+                        power_term
+                    );
+                }
+            }
+        }
+
+        /* Add term to series */
+        if (term) {
+            if (series == NULL) {
+                series = term;
+            } else {
+                series = ast_create_binary_op(OP_ADD, series, term);
+            }
+        }
+
+        /* Compute next derivative for next iteration */
+        if (n < order) {
+            ASTNode *next_derivative = ast_differentiate(current_derivative, var_name);
+            ast_free(current_derivative);
+            current_derivative = next_derivative;
+
+            /* If differentiation failed, stop here */
+            if (!current_derivative) {
+                break;
+            }
+        }
+    }
+
+    /* Clean up */
+    if (current_derivative) {
+        ast_free(current_derivative);
+    }
+    if (x_minus_c) {
+        ast_free(x_minus_c);
+    }
+
+    /* If series is NULL (all terms were zero), return 0 */
+    if (series == NULL) {
+        return ast_create_number(0.0);
+    }
+
+    /* Return the unsimplified series
+     * Note: Simplification can be very slow on complex Taylor series
+     * Users can call ast_simplify() separately if needed
+     */
+    return series;
+}
+
+/* ============================================================================
+ * OPTIMIZATION ENGINE
+ * ============================================================================ */
+
+/* Create default optimizer configuration */
+OptimizerConfig optimizer_config_default(OptimizerType type) {
+    OptimizerConfig config;
+    config.tolerance = 1e-6;
+    config.max_iterations = 1000;
+    config.verbose = false;
+
+    switch (type) {
+        case OPTIMIZER_GRADIENT_DESCENT:
+            config.learning_rate = 0.01;
+            config.momentum = 0.0;
+            config.beta1 = 0.0;
+            config.beta2 = 0.0;
+            config.epsilon = 0.0;
+            config.restart_iterations = 0;
+            break;
+
+        case OPTIMIZER_GRADIENT_DESCENT_MOMENTUM:
+            config.learning_rate = 0.01;
+            config.momentum = 0.9;
+            config.beta1 = 0.0;
+            config.beta2 = 0.0;
+            config.epsilon = 0.0;
+            config.restart_iterations = 0;
+            break;
+
+        case OPTIMIZER_ADAM:
+            config.learning_rate = 0.001;
+            config.momentum = 0.0;
+            config.beta1 = 0.9;
+            config.beta2 = 0.999;
+            config.epsilon = 1e-8;
+            config.restart_iterations = 0;
+            break;
+
+        case OPTIMIZER_CONJUGATE_GRADIENT:
+            config.learning_rate = 1.0;  /* CG doesn't use fixed learning rate */
+            config.momentum = 0.0;
+            config.beta1 = 0.0;
+            config.beta2 = 0.0;
+            config.epsilon = 0.0;
+            config.restart_iterations = 0;  /* 0 = auto (var_count) */
+            break;
+    }
+
+    return config;
+}
+
+/* Free optimization result */
+void optimization_result_free(OptimizationResult *result) {
+    if (!result) return;
+
+    if (result->solution) {
+        free(result->solution);
+        result->solution = NULL;
+    }
+
+    if (result->history) {
+        free(result->history);
+        result->history = NULL;
+    }
+}
+
+/* Backtracking line search for step size */
+double line_search_backtracking(
+    const ASTNode *expr,
+    VarContext *ctx,
+    const double *position,
+    const double *direction,
+    int var_count,
+    double alpha_init,
+    double rho,
+    double c
+) {
+    double alpha = alpha_init;
+    double *new_position = malloc(sizeof(double) * var_count);
+
+    /* Evaluate function at current position */
+    for (int i = 0; i < var_count; i++) {
+        ctx->values[i] = position[i];
+    }
+    double f_current = ast_evaluate(expr, ctx);
+
+    /* Try smaller step sizes until Armijo condition is satisfied */
+    for (int iter = 0; iter < 20; iter++) {
+        /* new_position = position + alpha * direction */
+        for (int i = 0; i < var_count; i++) {
+            new_position[i] = position[i] + alpha * direction[i];
+            ctx->values[i] = new_position[i];
+        }
+
+        double f_new = ast_evaluate(expr, ctx);
+
+        /* Armijo condition: f(x + α*d) <= f(x) + c*α*∇f·d */
+        /* Simplified: just check if we're decreasing */
+        if (f_new < f_current) {
+            free(new_position);
+            return alpha;
+        }
+
+        alpha *= rho;  /* Reduce step size */
+    }
+
+    free(new_position);
+    return alpha;  /* Return smallest tried value */
+}
+
+/* Gradient Descent optimizer */
+static OptimizationResult optimize_gradient_descent(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config
+) {
+    OptimizationResult result;
+    result.solution = malloc(sizeof(double) * var_count);
+    result.converged = false;
+    result.iterations = 0;
+    result.history = config->verbose ? malloc(sizeof(double) * config->max_iterations) : NULL;
+    result.history_count = 0;
+    strcpy(result.error_message, "");
+
+    /* Initialize position */
+    for (int i = 0; i < var_count; i++) {
+        result.solution[i] = initial_guess[i];
+    }
+
+    /* Compute gradient */
+    Gradient grad = ast_gradient(expr, var_names, var_count);
+
+    /* Setup variable context */
+    VarMapping *mappings = malloc(sizeof(VarMapping) * var_count);
+    for (int i = 0; i < var_count; i++) {
+        mappings[i].name = var_names[i];
+        mappings[i].index = i;
+    }
+
+    VarContext ctx = {
+        .values = result.solution,
+        .count = var_count,
+        .mappings = mappings,
+        .mapping_count = var_count
+    };
+
+    /* Optimization loop */
+    for (int iter = 0; iter < config->max_iterations; iter++) {
+        /* Evaluate gradient at current position */
+        double *grad_values = gradient_evaluate(&grad, &ctx);
+
+        /* Compute gradient norm */
+        double grad_norm = 0.0;
+        for (int i = 0; i < var_count; i++) {
+            grad_norm += grad_values[i] * grad_values[i];
+        }
+        grad_norm = sqrt(grad_norm);
+
+        /* Check convergence */
+        if (grad_norm < config->tolerance) {
+            result.converged = true;
+            result.iterations = iter;
+            free(grad_values);
+            break;
+        }
+
+        /* Update position: x = x - learning_rate * gradient */
+        for (int i = 0; i < var_count; i++) {
+            result.solution[i] -= config->learning_rate * grad_values[i];
+        }
+
+        free(grad_values);
+
+        /* Store history */
+        if (config->verbose) {
+            result.history[result.history_count++] = ast_evaluate(expr, &ctx);
+        }
+
+        result.iterations = iter + 1;
+    }
+
+    /* Evaluate final objective value */
+    result.final_value = ast_evaluate(expr, &ctx);
+
+    /* Cleanup */
+    gradient_free(&grad);
+    free(mappings);
+
+    if (!result.converged && result.iterations >= config->max_iterations) {
+        snprintf(result.error_message, sizeof(result.error_message),
+                 "Max iterations reached without convergence");
+    }
+
+    return result;
+}
+
+/* Gradient Descent with Momentum optimizer */
+static OptimizationResult optimize_gradient_descent_momentum(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config
+) {
+    OptimizationResult result;
+    result.solution = malloc(sizeof(double) * var_count);
+    result.converged = false;
+    result.iterations = 0;
+    result.history = config->verbose ? malloc(sizeof(double) * config->max_iterations) : NULL;
+    result.history_count = 0;
+    strcpy(result.error_message, "");
+
+    /* Initialize position and velocity */
+    for (int i = 0; i < var_count; i++) {
+        result.solution[i] = initial_guess[i];
+    }
+
+    double *velocity = calloc(var_count, sizeof(double));  /* Initialize to zero */
+
+    /* Compute gradient */
+    Gradient grad = ast_gradient(expr, var_names, var_count);
+
+    /* Setup variable context */
+    VarMapping *mappings = malloc(sizeof(VarMapping) * var_count);
+    for (int i = 0; i < var_count; i++) {
+        mappings[i].name = var_names[i];
+        mappings[i].index = i;
+    }
+
+    VarContext ctx = {
+        .values = result.solution,
+        .count = var_count,
+        .mappings = mappings,
+        .mapping_count = var_count
+    };
+
+    /* Optimization loop */
+    for (int iter = 0; iter < config->max_iterations; iter++) {
+        /* Evaluate gradient at current position */
+        double *grad_values = gradient_evaluate(&grad, &ctx);
+
+        /* Compute gradient norm */
+        double grad_norm = 0.0;
+        for (int i = 0; i < var_count; i++) {
+            grad_norm += grad_values[i] * grad_values[i];
+        }
+        grad_norm = sqrt(grad_norm);
+
+        /* Check convergence */
+        if (grad_norm < config->tolerance) {
+            result.converged = true;
+            result.iterations = iter;
+            free(grad_values);
+            break;
+        }
+
+        /* Update velocity: v = momentum * v + learning_rate * gradient */
+        /* Update position: x = x - v */
+        for (int i = 0; i < var_count; i++) {
+            velocity[i] = config->momentum * velocity[i] + config->learning_rate * grad_values[i];
+            result.solution[i] -= velocity[i];
+        }
+
+        free(grad_values);
+
+        /* Store history */
+        if (config->verbose) {
+            result.history[result.history_count++] = ast_evaluate(expr, &ctx);
+        }
+
+        result.iterations = iter + 1;
+    }
+
+    /* Evaluate final objective value */
+    result.final_value = ast_evaluate(expr, &ctx);
+
+    /* Cleanup */
+    free(velocity);
+    gradient_free(&grad);
+    free(mappings);
+
+    if (!result.converged && result.iterations >= config->max_iterations) {
+        snprintf(result.error_message, sizeof(result.error_message),
+                 "Max iterations reached without convergence");
+    }
+
+    return result;
+}
+
+/* Adam optimizer */
+static OptimizationResult optimize_adam(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config
+) {
+    OptimizationResult result;
+    result.solution = malloc(sizeof(double) * var_count);
+    result.converged = false;
+    result.iterations = 0;
+    result.history = config->verbose ? malloc(sizeof(double) * config->max_iterations) : NULL;
+    result.history_count = 0;
+    strcpy(result.error_message, "");
+
+    /* Initialize position */
+    for (int i = 0; i < var_count; i++) {
+        result.solution[i] = initial_guess[i];
+    }
+
+    /* Initialize first and second moment vectors */
+    double *m = calloc(var_count, sizeof(double));  /* First moment */
+    double *v = calloc(var_count, sizeof(double));  /* Second moment */
+
+    /* Compute gradient */
+    Gradient grad = ast_gradient(expr, var_names, var_count);
+
+    /* Setup variable context */
+    VarMapping *mappings = malloc(sizeof(VarMapping) * var_count);
+    for (int i = 0; i < var_count; i++) {
+        mappings[i].name = var_names[i];
+        mappings[i].index = i;
+    }
+
+    VarContext ctx = {
+        .values = result.solution,
+        .count = var_count,
+        .mappings = mappings,
+        .mapping_count = var_count
+    };
+
+    /* Optimization loop */
+    for (int iter = 0; iter < config->max_iterations; iter++) {
+        int t = iter + 1;  /* Time step (starts at 1) */
+
+        /* Evaluate gradient at current position */
+        double *grad_values = gradient_evaluate(&grad, &ctx);
+
+        /* Compute gradient norm */
+        double grad_norm = 0.0;
+        for (int i = 0; i < var_count; i++) {
+            grad_norm += grad_values[i] * grad_values[i];
+        }
+        grad_norm = sqrt(grad_norm);
+
+        /* Check convergence */
+        if (grad_norm < config->tolerance) {
+            result.converged = true;
+            result.iterations = iter;
+            free(grad_values);
+            break;
+        }
+
+        /* Update biased first moment estimate: m = beta1 * m + (1 - beta1) * g */
+        /* Update biased second moment estimate: v = beta2 * v + (1 - beta2) * g^2 */
+        for (int i = 0; i < var_count; i++) {
+            m[i] = config->beta1 * m[i] + (1.0 - config->beta1) * grad_values[i];
+            v[i] = config->beta2 * v[i] + (1.0 - config->beta2) * grad_values[i] * grad_values[i];
+        }
+
+        /* Compute bias-corrected moment estimates */
+        double beta1_t = pow(config->beta1, t);
+        double beta2_t = pow(config->beta2, t);
+
+        /* Update position */
+        for (int i = 0; i < var_count; i++) {
+            double m_hat = m[i] / (1.0 - beta1_t);
+            double v_hat = v[i] / (1.0 - beta2_t);
+            result.solution[i] -= config->learning_rate * m_hat / (sqrt(v_hat) + config->epsilon);
+        }
+
+        free(grad_values);
+
+        /* Store history */
+        if (config->verbose) {
+            result.history[result.history_count++] = ast_evaluate(expr, &ctx);
+        }
+
+        result.iterations = iter + 1;
+    }
+
+    /* Evaluate final objective value */
+    result.final_value = ast_evaluate(expr, &ctx);
+
+    /* Cleanup */
+    free(m);
+    free(v);
+    gradient_free(&grad);
+    free(mappings);
+
+    if (!result.converged && result.iterations >= config->max_iterations) {
+        snprintf(result.error_message, sizeof(result.error_message),
+                 "Max iterations reached without convergence");
+    }
+
+    return result;
+}
+
+/* Conjugate Gradient optimizer (Polak-Ribière variant) */
+static OptimizationResult optimize_conjugate_gradient(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config
+) {
+    OptimizationResult result;
+    result.solution = malloc(sizeof(double) * var_count);
+    result.converged = false;
+    result.iterations = 0;
+    result.history = config->verbose ? malloc(sizeof(double) * config->max_iterations) : NULL;
+    result.history_count = 0;
+    strcpy(result.error_message, "");
+
+    /* Initialize position */
+    for (int i = 0; i < var_count; i++) {
+        result.solution[i] = initial_guess[i];
+    }
+
+    double *direction = malloc(sizeof(double) * var_count);
+    double *grad_old = calloc(var_count, sizeof(double));
+
+    /* Compute gradient */
+    Gradient grad = ast_gradient(expr, var_names, var_count);
+
+    /* Setup variable context */
+    VarMapping *mappings = malloc(sizeof(VarMapping) * var_count);
+    for (int i = 0; i < var_count; i++) {
+        mappings[i].name = var_names[i];
+        mappings[i].index = i;
+    }
+
+    VarContext ctx = {
+        .values = result.solution,
+        .count = var_count,
+        .mappings = mappings,
+        .mapping_count = var_count
+    };
+
+    int restart_iter = config->restart_iterations > 0 ? config->restart_iterations : var_count;
+
+    /* Optimization loop */
+    for (int iter = 0; iter < config->max_iterations; iter++) {
+        /* Evaluate gradient at current position */
+        double *grad_values = gradient_evaluate(&grad, &ctx);
+
+        /* Compute gradient norm */
+        double grad_norm = 0.0;
+        for (int i = 0; i < var_count; i++) {
+            grad_norm += grad_values[i] * grad_values[i];
+        }
+        grad_norm = sqrt(grad_norm);
+
+        /* Check convergence */
+        if (grad_norm < config->tolerance) {
+            result.converged = true;
+            result.iterations = iter;
+            free(grad_values);
+            break;
+        }
+
+        /* Compute conjugate direction */
+        if (iter % restart_iter == 0) {
+            /* Restart: use steepest descent direction */
+            for (int i = 0; i < var_count; i++) {
+                direction[i] = -grad_values[i];
+            }
+        } else {
+            /* Polak-Ribière formula: beta = (g_new · (g_new - g_old)) / ||g_old||^2 */
+            double numerator = 0.0;
+            double denominator = 0.0;
+            for (int i = 0; i < var_count; i++) {
+                numerator += grad_values[i] * (grad_values[i] - grad_old[i]);
+                denominator += grad_old[i] * grad_old[i];
+            }
+            double beta = (denominator > 1e-12) ? (numerator / denominator) : 0.0;
+            beta = fmax(0.0, beta);  /* Ensure non-negative */
+
+            /* direction = -gradient + beta * direction_old */
+            for (int i = 0; i < var_count; i++) {
+                direction[i] = -grad_values[i] + beta * direction[i];
+            }
+        }
+
+        /* Line search for step size */
+        double alpha = line_search_backtracking(expr, &ctx, result.solution, direction, var_count, 1.0, 0.5, 1e-4);
+
+        /* Update position */
+        for (int i = 0; i < var_count; i++) {
+            result.solution[i] += alpha * direction[i];
+        }
+
+        /* Store old gradient */
+        for (int i = 0; i < var_count; i++) {
+            grad_old[i] = grad_values[i];
+        }
+
+        free(grad_values);
+
+        /* Store history */
+        if (config->verbose) {
+            result.history[result.history_count++] = ast_evaluate(expr, &ctx);
+        }
+
+        result.iterations = iter + 1;
+    }
+
+    /* Evaluate final objective value */
+    result.final_value = ast_evaluate(expr, &ctx);
+
+    /* Cleanup */
+    free(direction);
+    free(grad_old);
+    gradient_free(&grad);
+    free(mappings);
+
+    if (!result.converged && result.iterations >= config->max_iterations) {
+        snprintf(result.error_message, sizeof(result.error_message),
+                 "Max iterations reached without convergence");
+    }
+
+    return result;
+}
+
+/* Main optimization interface - minimize */
+OptimizationResult ast_minimize(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config,
+    OptimizerType type
+) {
+    if (!expr || !var_names || var_count <= 0 || !initial_guess) {
+        OptimizationResult result = {0};
+        result.converged = false;
+        strcpy(result.error_message, "Invalid input parameters");
+        return result;
+    }
+
+    /* Use default config if none provided */
+    OptimizerConfig default_config;
+    if (!config) {
+        default_config = optimizer_config_default(type);
+        config = &default_config;
+    }
+
+    /* Call appropriate optimizer */
+    switch (type) {
+        case OPTIMIZER_GRADIENT_DESCENT:
+            return optimize_gradient_descent(expr, var_names, var_count, initial_guess, config);
+
+        case OPTIMIZER_GRADIENT_DESCENT_MOMENTUM:
+            return optimize_gradient_descent_momentum(expr, var_names, var_count, initial_guess, config);
+
+        case OPTIMIZER_ADAM:
+            return optimize_adam(expr, var_names, var_count, initial_guess, config);
+
+        case OPTIMIZER_CONJUGATE_GRADIENT:
+            return optimize_conjugate_gradient(expr, var_names, var_count, initial_guess, config);
+
+        default: {
+            OptimizationResult result = {0};
+            result.converged = false;
+            strcpy(result.error_message, "Unknown optimizer type");
+            return result;
+        }
+    }
+}
+
+/* Maximize objective function (minimizes -f) */
+OptimizationResult ast_maximize(
+    const ASTNode *expr,
+    const char **var_names,
+    int var_count,
+    const double *initial_guess,
+    const OptimizerConfig *config,
+    OptimizerType type
+) {
+    /* Create negated expression */
+    ASTNode *neg_expr = ast_create_unary_op(OP_NEGATE, ast_clone(expr));
+
+    /* Minimize the negated function */
+    OptimizationResult result = ast_minimize(neg_expr, var_names, var_count, initial_guess, config, type);
+
+    /* Negate the final value back */
+    result.final_value = -result.final_value;
+
+    /* Negate history if present */
+    if (result.history) {
+        for (int i = 0; i < result.history_count; i++) {
+            result.history[i] = -result.history[i];
+        }
+    }
+
+    /* Cleanup */
+    ast_free(neg_expr);
+
+    return result;
 }
 
 /* ============================================================================
@@ -660,6 +1518,10 @@ static bool ast_nodes_equal(const ASTNode *a, const ASTNode *b) {
                 }
             }
             return true;
+
+        case AST_TENSOR:
+            /* Compare tensor pointers (for now) */
+            return a->data.tensor.tensor == b->data.tensor.tensor;
     }
 
     return false;
@@ -956,6 +1818,10 @@ ASTNode* ast_substitute(const ASTNode *node, const char *var_name, const ASTNode
             free(new_args);
             return result;
         }
+
+        case AST_TENSOR:
+            /* Tensors don't contain variables, return clone */
+            return ast_clone(node);
     }
 
     return NULL;
@@ -1289,9 +2155,133 @@ ASTNode* ast_integrate(const ASTNode *node, const char *var_name) {
             /* General case not supported */
             return ast_create_number(0.0);
         }
+
+        case AST_TENSOR:
+            /* Tensor integration not supported */
+            return ast_create_number(0.0);
     }
 
     return ast_create_number(0.0);
+}
+
+/* ============================================================================
+ * NUMERICAL INTEGRATION
+ * ============================================================================ */
+
+/* Trapezoidal rule for numerical integration
+ * Approximates ∫[a,b] f(x)dx using trapezoids
+ * More accurate with more steps
+ */
+double ast_integrate_numerical_trapezoidal(
+    const ASTNode *expr,
+    const char *var_name,
+    double a,
+    double b,
+    int steps
+) {
+    if (!expr || steps <= 0) return 0.0;
+
+    double h = (b - a) / steps;  /* Step size */
+    double sum = 0.0;
+
+    /* Variable mapping for evaluation */
+    VarMapping mapping = {.name = var_name, .index = 0};
+    double x_val;
+    VarContext ctx = {
+        .values = &x_val,
+        .count = 1,
+        .mappings = &mapping,
+        .mapping_count = 1
+    };
+
+    /* Trapezoidal rule: (h/2) * [f(a) + 2*f(x₁) + 2*f(x₂) + ... + 2*f(xₙ₋₁) + f(b)] */
+
+    /* First point f(a) */
+    x_val = a;
+    sum += ast_evaluate(expr, &ctx);
+
+    /* Middle points: 2*f(xᵢ) for i=1 to n-1 */
+    for (int i = 1; i < steps; i++) {
+        x_val = a + i * h;
+        sum += 2.0 * ast_evaluate(expr, &ctx);
+    }
+
+    /* Last point f(b) */
+    x_val = b;
+    sum += ast_evaluate(expr, &ctx);
+
+    return (h / 2.0) * sum;
+}
+
+/* Simpson's rule for numerical integration
+ * Approximates ∫[a,b] f(x)dx using parabolic segments
+ * Generally more accurate than trapezoidal for same number of steps
+ * Requires even number of steps
+ */
+double ast_integrate_numerical_simpson(
+    const ASTNode *expr,
+    const char *var_name,
+    double a,
+    double b,
+    int steps
+) {
+    if (!expr || steps <= 0) return 0.0;
+
+    /* Simpson's rule requires even number of intervals */
+    if (steps % 2 != 0) {
+        steps++;  /* Make it even */
+    }
+
+    double h = (b - a) / steps;  /* Step size */
+    double sum = 0.0;
+
+    /* Variable mapping for evaluation */
+    VarMapping mapping = {.name = var_name, .index = 0};
+    double x_val;
+    VarContext ctx = {
+        .values = &x_val,
+        .count = 1,
+        .mappings = &mapping,
+        .mapping_count = 1
+    };
+
+    /* Simpson's rule: (h/3) * [f(a) + 4*f(x₁) + 2*f(x₂) + 4*f(x₃) + ... + f(b)] */
+
+    /* First point f(a) */
+    x_val = a;
+    sum += ast_evaluate(expr, &ctx);
+
+    /* Middle points with alternating coefficients */
+    for (int i = 1; i < steps; i++) {
+        x_val = a + i * h;
+        double coeff = (i % 2 == 0) ? 2.0 : 4.0;  /* Even indices: 2, odd indices: 4 */
+        sum += coeff * ast_evaluate(expr, &ctx);
+    }
+
+    /* Last point f(b) */
+    x_val = b;
+    sum += ast_evaluate(expr, &ctx);
+
+    return (h / 3.0) * sum;
+}
+
+/* General numerical integration with method selection */
+double ast_integrate_numerical(
+    const ASTNode *expr,
+    const char *var_name,
+    double a,
+    double b,
+    int steps,
+    IntegrationMethod method
+) {
+    switch (method) {
+        case INTEGRATE_TRAPEZOIDAL:
+            return ast_integrate_numerical_trapezoidal(expr, var_name, a, b, steps);
+        case INTEGRATE_SIMPSON:
+            return ast_integrate_numerical_simpson(expr, var_name, a, b, steps);
+        default:
+            return 0.0;
+    }
 }
 
 /* ============================================================================
@@ -1667,6 +2657,14 @@ static void compile_node(const ASTNode *node, Bytecode *bc) {
             strncpy(inst.data.func.name, node->data.function.name, 31);
             inst.data.func.name[31] = '\0';
             inst.data.func.arg_count = node->data.function.arg_count;
+            bytecode_add_instruction(bc, inst);
+            break;
+        }
+
+        case AST_TENSOR: {
+            /* Push tensor mean as scalar value (tensors can't be bytecode compiled) */
+            BytecodeInstruction inst = {.op = BC_PUSH_NUM};
+            inst.data.num = tensor_mean(node->data.tensor.tensor);
             bytecode_add_instruction(bc, inst);
             break;
         }
