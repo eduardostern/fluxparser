@@ -69,16 +69,21 @@ TrainingConfig get_default_config(void) {
     return config;
 }
 
-/* Learning rate schedule with warmup */
+/* Learning rate schedule with warmup and cosine annealing */
 double get_learning_rate(int iter, TrainingConfig *config) {
     if (iter < config->warmup_iters) {
         /* Linear warmup */
         return config->learning_rate * ((double)iter / config->warmup_iters);
     } else {
-        /* Cosine decay */
+        /* Cosine annealing with minimum LR floor
+         * Prevents LR from decaying to zero, ensuring continued learning */
+        double min_lr = config->learning_rate * 0.1;  /* Minimum 10% of base LR */
         double progress = (double)(iter - config->warmup_iters) /
                          (config->n_iters - config->warmup_iters);
-        return config->learning_rate * (0.5 * (1.0 + cos(M_PI * progress)));
+        double cosine_decay = 0.5 * (1.0 + cos(M_PI * progress));
+
+        /* Scale between min_lr and base_lr using cosine */
+        return min_lr + (config->learning_rate - min_lr) * cosine_decay;
     }
 }
 
