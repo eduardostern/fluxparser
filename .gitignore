@@ -1,9 +1,9 @@
+# Claude Code internal directory
+.claude/
+
 # Project instructions (local only)
 CLAUDE.md
 claude.md
-
-# Claude Code internal directory
-.claude/
 
 # IDE and editor files
 .vscode/
@@ -40,11 +40,17 @@ models/*.ckpt
 *.bin
 *.ckpt
 
-# Temporary documentation files
+# Temporary documentation files (development notes)
 *_COMPLETE.md
 *_BUGFIXES_*.md
 *_TRAINING.md
 *_READY.md
+*_SUMMARY*.md
+*_ANALYSIS.md
+*_RESULTS.md
+*_FINDINGS.md
+*_FIX.md
+*_ROADMAP.md
 GPU_OPTIMIZATION_PLAN.md
 OPTIMIZATION_COMPLETE.md
 MEMORY_LEAK_SOLUTION.md
@@ -52,6 +58,10 @@ ADAM_OPTIMIZER_IMPLEMENTED.md
 CHECKPOINT_OPTIMIZER_STATE.md
 AUTOGRAD_V2_ARCHITECTURE.md
 MEMORY_FIX_SUMMARY.md
+DEBUG.md
+CURRENT_LIMITATION.md
+MEMORY_USAGE.md
+REMAINING_ISSUES.md
 
 # Backup files
 *.backup
