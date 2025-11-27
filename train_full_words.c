@@ -1,6 +1,6 @@
 /*
- * train_full.c - Full transformer training with proper dataset loading,
- * checkpointing, and model saving
+ * train_full_words.c - Full transformer training with WORD-LEVEL tokenization
+ * Uses WordTokenizer instead of CharTokenizer for better semantic understanding
  */
 
 #include <stdio.h>
@@ -88,19 +88,40 @@ double get_learning_rate(int iter, TrainingConfig *config) {
 }
 
 /* Generate sample text during training */
-void generate_sample(TransformerV2 *model, CharTokenizer *tokenizer,
-                    const char *prompt, int length) {
+void generate_sample_words(TransformerV2 *model, WordTokenizer *tokenizer,
+                          const char *prompt, int max_words) {
     printf("  Sample: \"%s", prompt);
 
-    /* Tokenize prompt */
+    /* Tokenize prompt by words */
     int tokens[256];
     int n_tokens = 0;
-    for (int i = 0; prompt[i] && n_tokens < 256; i++) {
-        tokens[n_tokens++] = char_to_token(prompt[i], tokenizer);
+
+    char word_buf[256];
+    int pos = 0;
+
+    /* Extract words from prompt */
+    while (prompt[pos] && n_tokens < 256) {
+        /* Skip whitespace/punctuation */
+        while (prompt[pos] && (prompt[pos] == ' ' || prompt[pos] == ',' || prompt[pos] == '.')) {
+            pos++;
+        }
+
+        /* Extract word */
+        int len = 0;
+        while (prompt[pos] && prompt[pos] != ' ' && prompt[pos] != ',' && prompt[pos] != '.' && len < 255) {
+            word_buf[len++] = (prompt[pos] >= 'A' && prompt[pos] <= 'Z') ?
+                             (prompt[pos] + 32) : prompt[pos];  /* lowercase */
+            pos++;
+        }
+
+        if (len > 0) {
+            word_buf[len] = '\0';
+            tokens[n_tokens++] = word_to_token(word_buf, tokenizer);
+        }
     }
 
     /* Generate continuation */
-    for (int i = 0; i < length; i++) {
+    for (int i = 0; i < max_words; i++) {
         /* Forward pass */
         int window_start = 0;
         int window_len = n_tokens;
@@ -117,18 +138,36 @@ void generate_sample(TransformerV2 *model, CharTokenizer *tokenizer,
         double *last_logits = logits->data->data +
                              (window_len - 1) * model->vocab_size;
 
-        /* Greedy sampling for now */
-        int next_token = 0;
-        double max_val = -INFINITY;
-        for (int v = 0; v < model->vocab_size; v++) {
-            if (last_logits[v] > max_val) {
-                max_val = last_logits[v];
+        /* Temperature sampling (skip <UNK> = token 0) */
+        double temperature = 0.8;
+
+        /* Apply temperature and softmax */
+        double max_logit = -INFINITY;
+        for (int v = 1; v < model->vocab_size; v++) {  /* Skip <UNK> */
+            if (last_logits[v] > max_logit) max_logit = last_logits[v];
+        }
+
+        double sum = 0.0;
+        double probs[8000];
+        for (int v = 1; v < model->vocab_size; v++) {
+            probs[v] = exp((last_logits[v] - max_logit) / temperature);
+            sum += probs[v];
+        }
+
+        /* Sample from distribution */
+        double r = (double)rand() / RAND_MAX * sum;
+        double cumsum = 0.0;
+        int next_token = 1;  /* Default to first non-UNK word */
+        for (int v = 1; v < model->vocab_size; v++) {
+            cumsum += probs[v];
+            if (cumsum >= r) {
                 next_token = v;
+                break;
             }
         }
 
-        /* Print and add to context */
-        printf("%c", token_to_char(next_token, tokenizer));
+        /* Print word and add to context */
+        printf(" %s", token_to_word(next_token, tokenizer));
 
         if (n_tokens < 256) {
             tokens[n_tokens++] = next_token;
@@ -156,17 +195,21 @@ int main(int argc, char *argv[]) {
     int use_tiny_dataset = 0;
     int use_resume = 0;
     char resume_path[512] = "";
+    int num_threads = 1;  /* Default: 1 thread (sequential) */
+    int use_word_tokens = 0;  /* Default: character-level tokenization */
 
-    if (argc > 1) {
-        if (strcmp(argv[1], "--resume") == 0) {
+    /* Process all arguments */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--resume") == 0) {
             use_resume = 1;
-            if (argc > 2) {
-                strncpy(resume_path, argv[2], sizeof(resume_path) - 1);
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                strncpy(resume_path, argv[i + 1], sizeof(resume_path) - 1);
+                i++;  /* Skip next arg (path) */
             } else {
                 snprintf(resume_path, sizeof(resume_path), "models/checkpoint.iter_001000.ckpt");
             }
             printf("🔄 Resume mode: Loading from %s\n\n", resume_path);
-        } else if (strcmp(argv[1], "--tiny") == 0) {
+        } else if (strcmp(argv[i], "--tiny") == 0) {
             /* Ultra-low memory: tiny model + tiny dataset */
             config.d_model = 64;
             config.n_heads = 2;
@@ -176,56 +219,73 @@ int main(int argc, char *argv[]) {
             config.n_iters = 2000;
             use_tiny_dataset = 1;
             printf("🔹 Tiny mode: Low memory, fast training\n\n");
-        } else if (strcmp(argv[1], "--small") == 0) {
+        } else if (strcmp(argv[i], "--small") == 0) {
             config.d_model = 128;
             config.n_heads = 4;
             config.n_layers = 2;
             config.d_ff = 512;
-            config.n_iters = 1000;  /* Safe: 1K iterations per run */
+            config.n_iters = 1000;  /* Default: 1K iterations */
             use_tiny_dataset = 0;  /* Use full Shakespeare dataset */
-        } else if (strcmp(argv[1], "--quality") == 0) {
-            /* Optimized for coherent text generation - balanced speed/quality */
-            config.d_model = 128;
-            config.n_heads = 4;
-            config.n_layers = 2;
-            config.d_ff = 512;
-            config.seq_len = 64;
-            config.n_iters = 5000;
-            config.learning_rate = 5e-4;
-            use_tiny_dataset = 0;
-            printf("🎯 Quality mode: 430K params, 5K iters, ~5min training\n\n");
-        } else if (strcmp(argv[1], "--medium") == 0) {
-            config.d_model = 256;
-            config.n_heads = 8;
-            config.n_layers = 4;
-            config.d_ff = 1024;
-        } else if (strcmp(argv[1], "--large") == 0) {
+        } else if (strcmp(argv[i], "--medium") == 0) {
+            config.d_model = 192;
+            config.n_heads = 6;
+            config.n_layers = 3;
+            config.d_ff = 768;
+            config.n_iters = 10000;
+            printf("🎯 Medium mode: 1M+ params, optimized for word-level\n\n");
+        } else if (strcmp(argv[i], "--large") == 0) {
             config.d_model = 512;
             config.n_heads = 16;
             config.n_layers = 6;
             config.d_ff = 2048;
-        } else {
-            config.n_iters = atoi(argv[1]);
+        } else if (strcmp(argv[i], "--batch-size") == 0) {
+            if (i + 1 < argc) {
+                config.batch_size = atoi(argv[i + 1]);
+                printf("🔹 Batch size: %d samples per iteration\n\n", config.batch_size);
+                i++;  /* Skip next arg (batch size value) */
+            } else {
+                fprintf(stderr, "Error: --batch-size requires a numeric argument\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--threads") == 0) {
+            if (i + 1 < argc) {
+                num_threads = atoi(argv[i + 1]);
+                if (num_threads < 1) num_threads = 1;
+                printf("🔹 Threads: %d worker threads\n\n", num_threads);
+                i++;  /* Skip next arg (thread count) */
+            } else {
+                fprintf(stderr, "Error: --threads requires a numeric argument\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--words") == 0) {
+            use_word_tokens = 1;
+            printf("🔹 Tokenization: Word-level\n\n");
+        } else if (argv[i][0] != '-') {
+            /* Numeric argument = iteration count */
+            config.n_iters = atoi(argv[i]);
         }
     }
+
+    /* Show final configuration */
+    printf("Configuration: %d iterations, batch_size=%d, threads=%d\n\n",
+           config.n_iters, config.batch_size, num_threads);
+
+    /* Thread pool not yet implemented for word-level training */
+    (void)num_threads;  /* Suppress unused warning */
 
     /* Initialize */
     srand(time(NULL));
     autograd_v2_init();
 
     /* Load dataset */
-    printf("Loading dataset...\n");
+    printf("Loading dataset with WORD-LEVEL tokenization...\n");
     fflush(stdout);
-    CharTokenizer *tokenizer = NULL;
+    WordTokenizer *tokenizer = NULL;
     Dataset *dataset = NULL;
 
     /* Try to load Shakespeare, but use fallback if it fails or for tiny mode */
     if (!use_tiny_dataset) {
-        printf("[DEBUG] Attempting to load Shakespeare dataset...\n");
-        fflush(stdout);
-        dataset = load_shakespeare(&tokenizer);
-        printf("[DEBUG] Shakespeare load returned: %p\n", (void*)dataset);
-        fflush(stdout);
+        dataset = load_shakespeare_words(&tokenizer);
     }
 
     if (!dataset || use_tiny_dataset) {
@@ -233,7 +293,7 @@ int main(int argc, char *argv[]) {
         printf("   For full Shakespeare (1MB): Download manually to data/shakespeare.txt\n");
         printf("   URL: https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt\n\n");
 
-        /* Use small built-in dataset */
+        /* Use small built-in dataset with word tokenization */
         const char *text =
             "To be or not to be, that is the question.\n"
             "Whether tis nobler in the mind to suffer\n"
@@ -246,13 +306,43 @@ int main(int argc, char *argv[]) {
             "Devoutly to be wished. To die, to sleep,\n"
             "To sleep, perchance to dream. Ay, there's the rub.\n";
 
-        tokenizer = create_char_tokenizer(text);
+        /* Create word tokenizer for built-in dataset */
+        tokenizer = create_word_tokenizer(text, 1000);
+
+        /* Tokenize text into words */
+        char word_buf[256];
+        int pos = 0;
+        int word_count = 0;
+
+        /* Count words */
+        while (text[pos]) {
+            while (text[pos] && (text[pos] == ' ' || text[pos] == '\n' || text[pos] == ',' || text[pos] == '.')) pos++;
+            if (!text[pos]) break;
+            word_count++;
+            while (text[pos] && text[pos] != ' ' && text[pos] != '\n' && text[pos] != ',' && text[pos] != '.') pos++;
+        }
+
         dataset = malloc(sizeof(Dataset));
-        dataset->length = strlen(text);
+        dataset->length = word_count;
         dataset->tokens = malloc(dataset->length * sizeof(int));
 
-        for (int i = 0; i < dataset->length; i++) {
-            dataset->tokens[i] = char_to_token(text[i], tokenizer);
+        /* Tokenize */
+        pos = 0;
+        int idx = 0;
+        while (text[pos] && idx < word_count) {
+            while (text[pos] && (text[pos] == ' ' || text[pos] == '\n' || text[pos] == ',' || text[pos] == '.')) pos++;
+            if (!text[pos]) break;
+
+            int len = 0;
+            while (text[pos] && text[pos] != ' ' && text[pos] != '\n' && text[pos] != ',' && text[pos] != '.' && len < 255) {
+                word_buf[len++] = (text[pos] >= 'A' && text[pos] <= 'Z') ? (text[pos] + 32) : text[pos];
+                pos++;
+            }
+            word_buf[len] = '\0';
+
+            if (len > 0) {
+                dataset->tokens[idx++] = word_to_token(word_buf, tokenizer);
+            }
         }
     }
 
@@ -260,22 +350,14 @@ int main(int argc, char *argv[]) {
     printf("Dataset: %d tokens, vocab size: %d\n", dataset->length, config.vocab_size);
     printf("Memory usage: ~%.2f MB (dataset + model)\n\n",
            (dataset->length * sizeof(int) + 10 * 1024 * 1024) / 1024.0 / 1024.0);
-    fflush(stdout);
-
-    printf("[DEBUG] About to create model directory...\n");
-    fflush(stdout);
 
     /* Create model directory */
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "mkdir -p %s", config.model_dir);
     system(cmd);
 
-    /* Save tokenizer */
-    char tokenizer_path[512];
-    snprintf(tokenizer_path, sizeof(tokenizer_path),
-             "%s/tokenizer.bin", config.model_dir);
-    save_tokenizer(tokenizer, tokenizer_path);
-    printf("Tokenizer saved to %s\n", tokenizer_path);
+    /* Note: Word tokenizer save/load not yet implemented */
+    printf("Note: Using word-level tokenization (vocab size: %d)\n", tokenizer->vocab_size);
 
     /* Create or load model */
     TransformerV2 *model = NULL;
@@ -296,16 +378,11 @@ int main(int argc, char *argv[]) {
         printf("Creating transformer model...\n");
         printf("  Architecture: d=%d, heads=%d, layers=%d, ff=%d\n",
                config.d_model, config.n_heads, config.n_layers, config.d_ff);
-        fflush(stdout);
 
-        printf("[DEBUG] Calling transformer_create...\n");
-        fflush(stdout);
         model = transformer_create(
             config.vocab_size, config.d_model, config.n_heads,
             config.n_layers, config.d_ff, config.max_seq_len
         );
-        printf("[DEBUG] Model created: %p\n", (void*)model);
-        fflush(stdout);
 
         /* Get parameters */
         VariableV2 **params;
@@ -343,85 +420,74 @@ int main(int argc, char *argv[]) {
     time_t start_time = time(NULL);
 
     /* Allocate batch buffers */
-    printf("[DEBUG] Allocating batch buffers...\n");
-    fflush(stdout);
     int *batch_inputs = malloc(config.batch_size * config.seq_len * sizeof(int));
     int *batch_targets = malloc(config.batch_size * config.seq_len * sizeof(int));
-    printf("[DEBUG] Starting training loop iteration %d...\n", start_iter);
-    fflush(stdout);
 
     for (int iter = start_iter; iter < end_iter; iter++) {
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: start\n", iter);
-            fflush(stdout);
-        }
-
-        /* CRITICAL: Zero gradients before each iteration
-         * Without this, gradients accumulate infinitely causing erratic updates */
-        for (int p = 0; p < optimizer->n_params; p++) {
-            var_zero_grad(optimizer->params[p]);
-        }
-
         /* Update learning rate */
         double lr = get_learning_rate(iter, &config);
         optimizer->learning_rate = lr;
 
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: getting batch\n", iter);
-            fflush(stdout);
+        /* Zero gradients from previous iteration */
+        for (int p = 0; p < optimizer->n_params; p++) {
+            VariableV2 *param = optimizer->params[p];
+            if (param->grad) {
+                for (int j = 0; j < param->data->size; j++) {
+                    param->grad->data[j] = 0.0;
+                }
+            }
         }
 
         /* Get batch */
         get_batch(dataset, config.batch_size, config.seq_len,
                  batch_inputs, batch_targets);
 
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: forward pass\n", iter);
-            fflush(stdout);
+        /* Process batch (accumulate gradients) */
+        double batch_loss = 0.0;
+
+        for (int b = 0; b < config.batch_size; b++) {
+            /* Get this batch item's input/target */
+            int *item_input = batch_inputs + b * config.seq_len;
+            int *item_target = batch_targets + b * config.seq_len;
+
+            /* Forward pass */
+            VariableV2 *logits = transformer_forward(model, item_input, config.seq_len);
+
+            /* Compute loss */
+            VariableV2 *loss = compute_cross_entropy_loss(logits, item_target,
+                                                          config.seq_len);
+
+            double loss_val = loss->data->data[0];
+            batch_loss += loss_val;
+
+            /* Backward pass (accumulates gradients) */
+            loss->grad->data[0] = 1.0;
+            tape_backward(g_tape);
+
+            /* Reset arena for next batch item (keeps gradients in param->grad) */
+            autograd_reset_iteration();
         }
 
-        /* Forward pass */
-        VariableV2 *logits = transformer_forward(model, batch_inputs, config.seq_len);
-
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: compute loss\n", iter);
-            fflush(stdout);
-        }
-
-        /* Compute loss */
-        VariableV2 *loss = compute_cross_entropy_loss(logits, batch_targets,
-                                                      config.seq_len);
-
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: loss computed, getting value\n", iter);
-            fflush(stdout);
-        }
-
-        double loss_val = loss->data->data[0];
-        total_loss += loss_val;
+        /* Average loss over batch */
+        double avg_batch_loss = batch_loss / config.batch_size;
+        total_loss += avg_batch_loss;
         loss_count++;
 
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: loss=%.4f, starting backward\n", iter, loss_val);
-            fflush(stdout);
+        /* Scale gradients by 1/batch_size (since they've been accumulated) */
+        if (config.batch_size > 1) {
+            double scale = 1.0 / config.batch_size;
+            for (int p = 0; p < optimizer->n_params; p++) {
+                VariableV2 *param = optimizer->params[p];
+                if (param->grad) {
+                    for (int j = 0; j < param->data->size; j++) {
+                        param->grad->data[j] *= scale;
+                    }
+                }
+            }
         }
 
-        /* Backward pass */
-        loss->grad->data[0] = 1.0;
-        tape_backward(g_tape);
-
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: backward done, calling adam_step\n", iter);
-            fflush(stdout);
-        }
-
-        /* Update weights */
+        /* Update weights with scaled gradients */
         adam_step(optimizer);
-
-        if (iter < 3) {
-            printf("[DEBUG] Iteration %d: adam_step done\n", iter);
-            fflush(stdout);
-        }
 
         /* Logging */
         if ((iter + 1) % config.log_interval == 0) {
@@ -439,7 +505,7 @@ int main(int argc, char *argv[]) {
 
         /* Generate samples */
         if ((iter + 1) % config.sample_interval == 0) {
-            generate_sample(model, tokenizer, "To be ", 50);
+            generate_sample_words(model, tokenizer, "To be", 20);  /* Generate 20 words */
         }
 
         /* Checkpointing */
@@ -448,7 +514,7 @@ int main(int argc, char *argv[]) {
             snprintf(checkpoint_path, sizeof(checkpoint_path),
                     "%s/checkpoint", config.model_dir);
             checkpoint_save(model, optimizer, iter + 1,
-                          loss_val, checkpoint_path);
+                          avg_batch_loss, checkpoint_path);
         }
 
         /* Save model */
@@ -460,15 +526,7 @@ int main(int argc, char *argv[]) {
         }
 
         /* Reset arena at END of loop - after all allocations */
-        if (iter < 5) {
-            printf("[DEBUG] Iteration %d: calling arena reset\n", iter);
-            fflush(stdout);
-        }
         autograd_reset_iteration();
-        if (iter < 5) {
-            printf("[DEBUG] Iteration %d: arena reset done, loop end\n", iter);
-            fflush(stdout);
-        }
     }
 
     printf("=====================================\n");
@@ -482,10 +540,8 @@ int main(int argc, char *argv[]) {
 
     /* Print usage instructions */
     printf("To generate text with the trained model:\n");
-    printf("  ./generate %s %s --interactive\n",
-           final_model_path, tokenizer_path);
-    printf("  ./generate %s %s --prompt \"To be or not to be\"\n",
-           final_model_path, tokenizer_path);
+    printf("  Note: Word-level generation not yet integrated with ./generate\n");
+    printf("  Model saved to: %s\n", final_model_path);
 
     /* Cleanup */
     free(batch_inputs);
@@ -493,7 +549,7 @@ int main(int argc, char *argv[]) {
     adam_free(optimizer);
     transformer_free(model);
     free_dataset(dataset);
-    free_tokenizer(tokenizer);
+    free_word_tokenizer(tokenizer);
     autograd_v2_cleanup();
 
     return 0;

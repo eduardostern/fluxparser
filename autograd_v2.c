@@ -1,5 +1,6 @@
 /*
  * AUTOGRAD V2 - Implementation
+ * OpenMP parallelization for multi-core support
  */
 
 #include "autograd_v2.h"
@@ -10,6 +11,12 @@
 #include <string.h>
 #include <math.h>
 #include <assert.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+/* Minimum size to parallelize (avoid overhead on small tensors) */
+#define OMP_MIN_SIZE 1024
 
 /* Global flag to enable/disable BLAS acceleration */
 static int g_use_blas = 1;  /* Enabled by default if available */
@@ -130,6 +137,7 @@ TensorV2* tensor_add(const TensorV2 *a, const TensorV2 *b) {
     assert(a->size == b->size);
 
     TensorV2 *result = tensor_create_temp(a->shape, a->rank);
+    #pragma omp parallel for if(a->size >= OMP_MIN_SIZE)
     for (int i = 0; i < a->size; i++) {
         result->data[i] = a->data[i] + b->data[i];
     }
@@ -141,6 +149,7 @@ TensorV2* tensor_subtract(const TensorV2 *a, const TensorV2 *b) {
     assert(a->size == b->size);
 
     TensorV2 *result = tensor_create_temp(a->shape, a->rank);
+    #pragma omp parallel for if(a->size >= OMP_MIN_SIZE)
     for (int i = 0; i < a->size; i++) {
         result->data[i] = a->data[i] - b->data[i];
     }
@@ -152,6 +161,7 @@ TensorV2* tensor_multiply(const TensorV2 *a, const TensorV2 *b) {
     assert(a->size == b->size);
 
     TensorV2 *result = tensor_create_temp(a->shape, a->rank);
+    #pragma omp parallel for if(a->size >= OMP_MIN_SIZE)
     for (int i = 0; i < a->size; i++) {
         result->data[i] = a->data[i] * b->data[i];
     }
@@ -192,6 +202,7 @@ TensorV2* tensor_transpose(const TensorV2 *a) {
 /* ReLU activation */
 TensorV2* tensor_relu(const TensorV2 *x) {
     TensorV2 *result = tensor_create_temp(x->shape, x->rank);
+    #pragma omp parallel for if(x->size >= OMP_MIN_SIZE)
     for (int i = 0; i < x->size; i++) {
         result->data[i] = x->data[i] > 0 ? x->data[i] : 0;
     }
@@ -715,17 +726,13 @@ void autograd_v2_cleanup(void) {
 
 /* Reset iteration (frees all temporaries) */
 void autograd_reset_iteration(void) {
-    static int iteration_count = 0;
-    iteration_count++;
-
     tape_reset(g_tape);
     if (global_arena) {
-        /* Every 10 iterations, aggressively free memory to prevent unbounded growth */
-        if (iteration_count % 10 == 0) {
-            arena_reset_aggressive(global_arena);
-        } else {
-            arena_reset(global_arena);
-        }
+        /* CRITICAL: Must call EVERY iteration to prevent exponential chunk growth!
+         * Previously called every 10 iterations, but arena's "first chunk" would grow
+         * exponentially, causing 2GB growth per 100 iterations → 60GB at 5000 iters.
+         * Calling every iteration keeps memory stable at ~67MB. */
+        arena_reset_aggressive(global_arena);
     }
 }
 

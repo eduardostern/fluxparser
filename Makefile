@@ -1,20 +1,25 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -O2 -pthread
+CFLAGS = -Wall -Wextra -std=c99 -O3 -march=native -pthread
 LDFLAGS = -lm -pthread
 
-# Detect platform and add BLAS if available
+# Detect platform and add BLAS + OpenMP
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
     # macOS: Use built-in Accelerate framework
     LDFLAGS += -framework Accelerate
-    $(info 🚀 Using Apple Accelerate framework for BLAS acceleration)
+    # OpenMP support (requires: brew install libomp)
+    CFLAGS += -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include
+    LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp
+    $(info 🚀 Using Apple Accelerate + OpenMP multi-threading)
 else ifeq ($(USE_OPENBLAS),1)
     # Linux with OpenBLAS
-    CFLAGS += -DUSE_OPENBLAS
-    LDFLAGS += -lopenblas
-    $(info 🚀 Using OpenBLAS for acceleration)
+    CFLAGS += -DUSE_OPENBLAS -fopenmp
+    LDFLAGS += -lopenblas -fopenmp
+    $(info 🚀 Using OpenBLAS + OpenMP for acceleration)
 else
-    $(info ⚠️  No BLAS found - using pure C (slower))
+    CFLAGS += -fopenmp
+    LDFLAGS += -fopenmp
+    $(info ⚠️  No BLAS found - using pure C with OpenMP)
 endif
 
 # Autograd V2 - New memory-safe transformer training system

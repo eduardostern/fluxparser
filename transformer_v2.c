@@ -1,13 +1,18 @@
 /*
  * transformer_v2.c - GPT-style transformer using autograd_v2
  * Memory-safe implementation with arena allocation
+ * OpenMP parallelization for multi-core support
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <assert.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "transformer_v2.h"
+#include "arena.h"
 
 /* ============ Layer Normalization ============ */
 
@@ -159,17 +164,25 @@ VariableV2* mha_forward(MultiHeadAttention *mha, VariableV2 *x) {
     TensorV2 *scores_tensor = tensor_create_temp(scores_shape, 3);
     VariableV2 *scores = var_create_temp(scores_tensor, x->requires_grad);
 
+    /* Parallelize over attention heads - each head is independent */
+    #pragma omp parallel for schedule(static)
     for (int h = 0; h < mha->n_heads; h++) {
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < seq_len; j++) {
-                double score = 0.0;
-                for (int d = 0; d < mha->d_head; d++) {
-                    int q_idx = i * mha->n_heads * mha->d_head + h * mha->d_head + d;
-                    int k_idx = j * mha->n_heads * mha->d_head + h * mha->d_head + d;
-                    score += q->data->data[q_idx] * k->data->data[k_idx];
+                /* CAUSAL MASK: position i can only attend to positions <= i
+                 * This prevents the model from "seeing the future" during training */
+                if (j > i) {
+                    scores_tensor->data[h * seq_len * seq_len + i * seq_len + j] = -INFINITY;
+                } else {
+                    double score = 0.0;
+                    for (int d = 0; d < mha->d_head; d++) {
+                        int q_idx = i * mha->n_heads * mha->d_head + h * mha->d_head + d;
+                        int k_idx = j * mha->n_heads * mha->d_head + h * mha->d_head + d;
+                        score += q->data->data[q_idx] * k->data->data[k_idx];
+                    }
+                    scores_tensor->data[h * seq_len * seq_len + i * seq_len + j] =
+                        score * mha->scale;
                 }
-                scores_tensor->data[h * seq_len * seq_len + i * seq_len + j] =
-                    score * mha->scale;
             }
         }
     }
@@ -182,6 +195,8 @@ VariableV2* mha_forward(MultiHeadAttention *mha, VariableV2 *x) {
     TensorV2 *attn_output_tensor = tensor_create_temp(out_shape, 3);
     VariableV2 *attn_output = var_create_temp(attn_output_tensor, x->requires_grad);
 
+    /* Parallelize over attention heads */
+    #pragma omp parallel for schedule(static)
     for (int h = 0; h < mha->n_heads; h++) {
         for (int i = 0; i < seq_len; i++) {
             for (int d = 0; d < mha->d_head; d++) {
@@ -333,6 +348,48 @@ void transformer_free(TransformerV2 *model) {
     }
 }
 
+/* Context for embedding lookup backward pass */
+typedef struct {
+    VariableV2 *token_embed;
+    VariableV2 *pos_embed;
+    int *tokens;
+    int seq_len;
+    int d_model;
+} EmbeddingLookupCtx;
+
+/* Backward pass for embedding lookup - propagates gradients to embeddings */
+static void backward_embedding_lookup(void *ctx, TensorV2 *grad_output) {
+    EmbeddingLookupCtx *c = (EmbeddingLookupCtx*)ctx;
+
+    /* Accumulate gradients for token embeddings */
+    if (c->token_embed->requires_grad && c->token_embed->grad) {
+        for (int t = 0; t < c->seq_len; t++) {
+            int token = c->tokens[t];
+            for (int d = 0; d < c->d_model; d++) {
+                c->token_embed->grad->data[token * c->d_model + d] +=
+                    grad_output->data[t * c->d_model + d];
+            }
+        }
+    }
+
+    /* Accumulate gradients for position embeddings */
+    if (c->pos_embed->requires_grad && c->pos_embed->grad) {
+        for (int t = 0; t < c->seq_len; t++) {
+            for (int d = 0; d < c->d_model; d++) {
+                c->pos_embed->grad->data[t * c->d_model + d] +=
+                    grad_output->data[t * c->d_model + d];
+            }
+        }
+    }
+}
+
+/* Forward declaration for tape_add_op - defined in autograd_v2.c */
+extern void tape_add_op(TapeV2 *tape, VariableV2 **inputs, int num_inputs,
+                        VariableV2 *output, void (*backward)(void*, TensorV2*), void *ctx);
+extern TapeV2 *g_tape;
+extern Arena *global_arena;
+extern void* arena_alloc(Arena *arena, size_t size);
+
 VariableV2* transformer_forward(TransformerV2 *model, int *tokens, int seq_len) {
     assert(seq_len <= model->max_seq_len);
 
@@ -351,6 +408,21 @@ VariableV2* transformer_forward(TransformerV2 *model, int *tokens, int seq_len) 
                 model->token_embed->data->data[tok_idx] +
                 model->pos_embed->data->data[pos_idx];
         }
+    }
+
+    /* Record embedding lookup for backward pass */
+    if (g_tape) {
+        EmbeddingLookupCtx *ctx = arena_alloc(global_arena, sizeof(EmbeddingLookupCtx));
+        ctx->token_embed = model->token_embed;
+        ctx->pos_embed = model->pos_embed;
+        /* Copy tokens to arena so they persist through backward */
+        ctx->tokens = arena_alloc(global_arena, seq_len * sizeof(int));
+        memcpy(ctx->tokens, tokens, seq_len * sizeof(int));
+        ctx->seq_len = seq_len;
+        ctx->d_model = model->d_model;
+
+        VariableV2 *inputs[] = {model->token_embed, model->pos_embed};
+        tape_add_op(g_tape, inputs, 2, x, backward_embedding_lookup, ctx);
     }
 
     /* Pass through transformer blocks */
